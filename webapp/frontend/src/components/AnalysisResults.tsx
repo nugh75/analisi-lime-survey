@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { BarChart3, Download, Filter } from 'lucide-react'
 import Plot from 'react-plotly.js'
 import axios from 'axios'
+import { useProject } from '../context/ProjectContext'
 
 interface AnalysisResultsProps {
   dataset: any
@@ -16,6 +17,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
   const [loading, setLoading] = useState(false)
   const [groupLabels, setGroupLabels] = useState<Record<string, string>>({})
   const [selectedSubIdx, setSelectedSubIdx] = useState<number>(0)
+  const { projectId } = useProject()
 
   useEffect(() => {
     if (dataset) {
@@ -26,7 +28,10 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
 
   const loadQuestionGroups = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/question-groups')
+      const url = projectId 
+        ? `http://localhost:8000/projects/${projectId}/question-groups`
+        : 'http://localhost:8000/question-groups'
+      const response = await axios.get(url)
   setQuestionGroups(response.data.groups)
   setGroupLabels(response.data.labels || {})
       if (response.data.groups.length > 0) {
@@ -39,7 +44,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
 
   const loadChartTypes = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/chart-types')
+  const response = await axios.get('http://localhost:8000/chart-types')
       // Backend returns array of objects { value, label, description }
       setChartTypes(response.data.chart_types)
       if (response.data.chart_types?.length) {
@@ -62,7 +67,10 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
       form.append('show_percentages', 'true')
       form.append('include_na', 'false')
 
-      const response = await axios.post('http://localhost:8000/analyze-question', form, {
+      const url = projectId 
+        ? `http://localhost:8000/projects/${projectId}/analyze-question`
+        : 'http://localhost:8000/analyze-question'
+      const response = await axios.post(url, form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setAnalysisResult(response.data)

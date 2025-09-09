@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileX, Check, AlertCircle } from 'lucide-react'
 import axios from 'axios'
+import { useProject } from '../context/ProjectContext'
 import { useNavigate } from 'react-router-dom'
 
 interface FileUploadProps {
@@ -17,6 +18,7 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
   const [success, setSuccess] = useState<string | null>(null)
   const [uploadedFilePaths, setUploadedFilePaths] = useState<string[]>([])
   const navigate = useNavigate()
+  const { projectId } = useProject()
 
   const toErrorMessage = (err: any): string => {
     const detail = err?.response?.data?.detail
@@ -52,7 +54,10 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
         formData.append('files', file)
       })
 
-      const response = await axios.post('http://localhost:8000/upload-files', formData, {
+      const uploadUrl = projectId 
+        ? `http://localhost:8000/projects/${projectId}/upload-files`
+        : 'http://localhost:8000/upload-files'
+      const response = await axios.post(uploadUrl, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -89,7 +94,10 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
 
     try {
       // Backend expects body with { file_paths: [...] }
-      const response = await axios.post('http://localhost:8000/merge-files', {
+      const mergeUrl = projectId 
+        ? `http://localhost:8000/projects/${projectId}/merge-files`
+        : 'http://localhost:8000/merge-files'
+      const response = await axios.post(mergeUrl, {
         file_paths: uploadedFilePaths,
       })
       setMergedFile(response.data.merged_file)
@@ -104,7 +112,10 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
 
   const handleCleanup = async () => {
     try {
-      await axios.delete('http://localhost:8000/cleanup')
+      const cleanupUrl = projectId 
+        ? `http://localhost:8000/projects/${projectId}/cleanup`
+        : 'http://localhost:8000/cleanup'
+      await axios.delete(cleanupUrl)
       setUploadedFiles([])
       setMergedFile(null)
       setUploadedFilePaths([])

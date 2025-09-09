@@ -1,10 +1,36 @@
 import { Link, useLocation } from 'react-router-dom'
-import { BarChart3, Upload, FileText } from 'lucide-react'
+import { BarChart3, Upload, FileText, Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+import { useProject } from '../context/ProjectContext'
 
 export default function Navigation() {
   const location = useLocation()
+  const { projectId, setProjectId } = useProject()
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
 
   const isActive = (path: string) => location.pathname === path
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await axios.get('http://localhost:8000/projects')
+        setProjects(res.data.projects || [])
+      } catch {}
+    }
+    load()
+  }, [])
+
+  const createProject = async () => {
+    try {
+      const res = await axios.post('http://localhost:8000/projects', { name: '' })
+      const p = { id: res.data.id, name: res.data.name }
+      setProjects(prev => [...prev, p])
+      setProjectId(p.id)
+    } catch (e) {
+      // ignore
+    }
+  }
 
   return (
     <nav className="bg-white shadow-sm border-b border-gray-200">
@@ -16,6 +42,23 @@ export default function Navigation() {
           </div>
           
           <div className="flex space-x-4">
+            {/* Project selector */}
+            <div className="flex items-center space-x-2">
+              <select
+                value={projectId || ''}
+                onChange={(e) => setProjectId(e.target.value || null)}
+                className="text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Default</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <button onClick={createProject} className="btn-secondary py-1 px-2">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+
             <Link
               to="/"
               className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition ${

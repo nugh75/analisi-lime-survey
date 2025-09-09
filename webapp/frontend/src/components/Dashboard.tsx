@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Database, FileText, BarChart3, Settings } from 'lucide-react'
 import axios from 'axios'
+import { useProject } from '../context/ProjectContext'
 
 interface DashboardProps {
   mergedFile: string | null
@@ -16,6 +17,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [datasetFile, setDatasetFile] = useState<string | null>(null)
   const navigate = useNavigate()
+  const { projectId } = useProject()
 
   useEffect(() => {
     if (mergedFile) {
@@ -27,7 +29,10 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
     setLoading(true)
     try {
       // Backend expects { file_path }
-      const response = await axios.post('http://localhost:8000/analyze-headers', {
+      const analyzeUrl = projectId 
+        ? `http://localhost:8000/projects/${projectId}/analyze-headers`
+        : 'http://localhost:8000/analyze-headers'
+      const response = await axios.post(analyzeUrl, {
         file_path: mergedFile,
       })
       setHeaders(response.data)
@@ -42,7 +47,10 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
     setLoading(true)
     try {
       // Backend expects { file_path, headers_analysis }
-      const response = await axios.post('http://localhost:8000/select-columns', {
+      const selectUrl = projectId 
+        ? `http://localhost:8000/projects/${projectId}/select-columns`
+        : 'http://localhost:8000/select-columns'
+      const response = await axios.post(selectUrl, {
         file_path: mergedFile,
         headers_analysis: headers?.headers ?? [],
       })
@@ -71,7 +79,10 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
       }
 
       const fileToLoad = datasetFile || (dataset?.dataset_file) || mergedFile
-      const loadResp = await axios.post('http://localhost:8000/load-dataset', {
+      const loadUrl = projectId 
+        ? `http://localhost:8000/projects/${projectId}/load-dataset`
+        : 'http://localhost:8000/load-dataset'
+      const loadResp = await axios.post(loadUrl, {
         file_path: fileToLoad,
       })
       setDataset(loadResp.data)
@@ -152,7 +163,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
               <h3 className="text-lg font-medium text-gray-900 mb-3">
                 Selected Columns ({usefulColumns.length})
               </h3>
-              
+
               <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg p-4 mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                   {usefulColumns.map((column, index) => (
@@ -186,7 +197,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
                   <BarChart3 className="h-4 w-4 mr-2" />
                   {loading ? 'Loading...' : 'Start Analysis'}
                 </button>
-                
+
                 <button
                   onClick={() => {
                     setSelectedColumns([...usefulColumns])
@@ -195,7 +206,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
                 >
                   Select All
                 </button>
-                
+
                 <button
                   onClick={() => setSelectedColumns([])}
                   className="btn-secondary"
@@ -205,7 +216,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
               </div>
             </div>
           )}
-  </div>
+        </div>
       </div>
     </div>
   )
