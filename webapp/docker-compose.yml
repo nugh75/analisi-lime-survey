@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/temp:/app/temp
+    environment:
+      - PYTHONPATH=/app
+    networks:
+      - survey-network
+    restart: unless-stopped
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    networks:
+      - survey-network
+    restart: unless-stopped
+
+networks:
+  survey-network:
+    driver: bridge
+
+volumes:
+  backend-uploads:
+  backend-temp:

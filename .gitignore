@@ -1,0 +1,28 @@
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# --- Node / Vite ---
+node_modules/
+dist/
+*.local
+.env.local
+.env.*.local
+vite.config.ts.timestamp-*
+*.log
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
