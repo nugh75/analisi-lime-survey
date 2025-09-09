@@ -18,7 +18,7 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
   const [success, setSuccess] = useState<string | null>(null)
   const [uploadedFilePaths, setUploadedFilePaths] = useState<string[]>([])
   const navigate = useNavigate()
-  const { projectId } = useProject()
+  const { projectId, projectName } = useProject()
 
   const toErrorMessage = (err: any): string => {
     const detail = err?.response?.data?.detail
@@ -128,7 +128,10 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
   return (
     <div className="max-w-4xl mx-auto">
       <div className="card">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Upload Survey Files</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload Survey Files</h2>
+        {projectId && (
+          <p className="text-sm text-gray-600 mb-4">Progetto attivo: <span className="font-medium">{projectName}</span></p>
+        )}
         
         {/* Upload Area */}
         <div

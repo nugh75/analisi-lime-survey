@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BarChart3, Download, Filter } from 'lucide-react'
+import { BarChart3, Download, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 import Plot from 'react-plotly.js'
 import axios from 'axios'
 import { useProject } from '../context/ProjectContext'
@@ -17,7 +17,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
   const [loading, setLoading] = useState(false)
   const [groupLabels, setGroupLabels] = useState<Record<string, string>>({})
   const [selectedSubIdx, setSelectedSubIdx] = useState<number>(0)
-  const { projectId } = useProject()
+  const { projectId, projectName } = useProject()
 
   useEffect(() => {
     if (dataset) {
@@ -32,8 +32,8 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
         ? `http://localhost:8000/projects/${projectId}/question-groups`
         : 'http://localhost:8000/question-groups'
       const response = await axios.get(url)
-  setQuestionGroups(response.data.groups)
-  setGroupLabels(response.data.labels || {})
+      setQuestionGroups(response.data.groups)
+      setGroupLabels(response.data.labels || {})
       if (response.data.groups.length > 0) {
         setSelectedGroup(response.data.groups[0])
       }
@@ -44,7 +44,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
 
   const loadChartTypes = async () => {
     try {
-  const response = await axios.get('http://localhost:8000/chart-types')
+      const response = await axios.get('http://localhost:8000/chart-types')
       // Backend returns array of objects { value, label, description }
       setChartTypes(response.data.chart_types)
       if (response.data.chart_types?.length) {
@@ -74,7 +74,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setAnalysisResult(response.data)
-  setSelectedSubIdx(0)
+      setSelectedSubIdx(0)
     } catch (err) {
       console.error('Failed to analyze question:', err)
     } finally {
@@ -97,9 +97,37 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
     document.body.removeChild(element)
   }
 
+  const goPrevGroup = async () => {
+    if (!questionGroups.length || !selectedGroup) return
+    const idx = questionGroups.findIndex(g => g === selectedGroup)
+    if (idx <= 0) return
+    const next = questionGroups[idx - 1]
+    setSelectedGroup(next)
+    await analyzeQuestion()
+  }
+
+  const goNextGroup = async () => {
+    if (!questionGroups.length || !selectedGroup) return
+    const idx = questionGroups.findIndex(g => g === selectedGroup)
+    if (idx === -1 || idx >= questionGroups.length - 1) return
+    const next = questionGroups[idx + 1]
+    setSelectedGroup(next)
+    await analyzeQuestion()
+  }
+
+  const goPrevSub = () => {
+    if (!analysisResult?.subquestions?.length) return
+    setSelectedSubIdx(prev => Math.max(0, prev - 1))
+  }
+
+  const goNextSub = () => {
+    if (!analysisResult?.subquestions?.length) return
+    setSelectedSubIdx(prev => Math.min(analysisResult.subquestions.length - 1, prev + 1))
+  }
+
   if (!dataset) {
     return (
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="card text-center">
           <BarChart3 className="mx-auto h-16 w-16 text-gray-400 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">No Dataset Loaded</h2>
@@ -110,12 +138,27 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-screen-2xl mx-auto space-y-6">
       {/* Controls */}
       <div className="card">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Analysis Results</h2>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Analysis Results</h2>
+            {projectId && (
+              <p className="text-base text-gray-600 mb-4">Progetto attivo: <span className="font-medium">{projectName}</span></p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={goPrevGroup} className="btn-secondary px-3 py-2" disabled={!selectedGroup}>
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button onClick={goNextGroup} className="btn-secondary px-3 py-2" disabled={!selectedGroup}>
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
         {selectedGroup && (
-          <p className="text-gray-700 mb-4">
+          <p className="text-gray-700 mb-4 text-lg">
             <span className="font-medium">Group:</span> {selectedGroup}
             {groupLabels[selectedGroup] && (
               <>
@@ -128,13 +171,13 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-base font-medium text-gray-700 mb-2">
               Question Group
             </label>
             <select
               value={selectedGroup}
               onChange={(e) => setSelectedGroup(e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base py-2"
             >
               {questionGroups.map((group, index) => (
                 <option key={index} value={group}>
@@ -145,13 +188,13 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-base font-medium text-gray-700 mb-2">
               Chart Type
             </label>
             <select
               value={chartType}
               onChange={(e) => setChartType(e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base py-2"
             >
               {chartTypes.map((type, index) => (
                 <option key={index} value={type.value}>
@@ -165,32 +208,32 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
             <button
               onClick={analyzeQuestion}
               disabled={loading || !selectedGroup}
-              className="btn-primary disabled:opacity-50"
+              className="btn-primary disabled:opacity-50 text-base px-4 py-2"
             >
-              <Filter className="h-4 w-4 mr-2" />
+              <Filter className="h-5 w-5 mr-2" />
               {loading ? 'Analyzing...' : 'Analyze'}
             </button>
           </div>
         </div>
       </div>
 
-  {/* Dataset Info */}
-  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Dataset Info */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="card">
-      <div className="text-2xl font-bold text-gray-900">{dataset.total_groups ?? 0}</div>
+          <div className="text-3xl font-bold text-gray-900">{dataset.total_groups ?? 0}</div>
           <div className="text-sm text-gray-600">Rows</div>
         </div>
         <div className="card">
-      <div className="text-2xl font-bold text-gray-900">{questionGroups.length}</div>
+          <div className="text-3xl font-bold text-gray-900">{questionGroups.length}</div>
           <div className="text-sm text-gray-600">Columns</div>
         </div>
         <div className="card">
-      <div className="text-2xl font-bold text-gray-900">{chartTypes.length}</div>
-      <div className="text-sm text-gray-600">Question Groups</div>
+          <div className="text-3xl font-bold text-gray-900">{chartTypes.length}</div>
+          <div className="text-sm text-gray-600">Question Groups</div>
         </div>
         <div className="card">
-      <div className="text-2xl font-bold text-gray-900">{dataset.total_groups ?? 0}</div>
-      <div className="text-sm text-gray-600">Chart Types</div>
+          <div className="text-3xl font-bold text-gray-900">{dataset.total_groups ?? 0}</div>
+          <div className="text-sm text-gray-600">Chart Types</div>
         </div>
       </div>
 
@@ -198,24 +241,32 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
       {analysisResult && (
         <div className="card">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold text-gray-900">
+            <h3 className="text-2xl font-bold text-gray-900">
               Analysis: {selectedGroup}
             </h3>
-            <button
-              onClick={downloadChart}
-              className="btn-secondary"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download
-            </button>
+            <div className="flex gap-2">
+              <button onClick={goPrevSub} className="btn-secondary px-3 py-2" disabled={selectedSubIdx <= 0}>
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button onClick={goNextSub} className="btn-secondary px-3 py-2" disabled={!(analysisResult?.subquestions) || selectedSubIdx >= analysisResult.subquestions.length - 1}>
+                <ChevronRight className="h-5 w-5" />
+              </button>
+              <button
+                onClick={downloadChart}
+                className="btn-secondary px-3 py-2"
+              >
+                <Download className="h-5 w-5 mr-2" />
+                Download
+              </button>
+            </div>
           </div>
 
           {/* Numeric report per subquestion */}
           {analysisResult?.subquestions && analysisResult.subquestions.length > 0 && (
             <div className="mb-6">
-              <h4 className="text-lg font-medium text-gray-900 mb-3">Numeric report</h4>
+              <h4 className="text-xl font-medium text-gray-900 mb-3">Numeric report</h4>
               <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
+                <table className="min-w-full text-base">
                   <thead>
                     <tr className="text-left text-gray-600">
                       <th className="p-2">#</th>
@@ -248,17 +299,18 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
           )}
 
           {/* Chart */}
-          {/* Chart */}
           {analysisResult?.subquestions?.[selectedSubIdx]?.chart && (
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               {/* Subquestion selector */}
               {analysisResult.subquestions.length > 1 && (
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Subquestion</label>
+                <div className="mb-4 flex items-center gap-2">
+                  <button onClick={goPrevSub} className="btn-secondary px-3 py-2" disabled={selectedSubIdx <= 0}>
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
                   <select
                     value={selectedSubIdx}
                     onChange={(e) => setSelectedSubIdx(parseInt(e.target.value, 10))}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base py-2"
                   >
                     {analysisResult.subquestions.map((sq: any, idx: number) => (
                       <option key={idx} value={idx}>
@@ -266,6 +318,9 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                       </option>
                     ))}
                   </select>
+                  <button onClick={goNextSub} className="btn-secondary px-3 py-2" disabled={selectedSubIdx >= analysisResult.subquestions.length - 1}>
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
                 </div>
               )}
               <Plot
@@ -280,7 +335,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                 layout={{
                   title: analysisResult.subquestions[selectedSubIdx].chart.title,
                   autosize: true,
-                  margin: { l: 40, r: 20, t: 40, b: 80 },
+                  margin: { l: 60, r: 40, t: 60, b: 100 },
                 }}
                 config={{
                   displayModeBar: true,
@@ -289,7 +344,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                   responsive: true,
                 }}
                 useResizeHandler
-                style={{ width: '100%', height: '500px' }}
+                style={{ width: '100%', height: '640px' }}
               />
             </div>
           )}

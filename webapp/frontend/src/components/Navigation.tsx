@@ -6,7 +6,7 @@ import { useProject } from '../context/ProjectContext'
 
 export default function Navigation() {
   const location = useLocation()
-  const { projectId, setProjectId } = useProject()
+  const { projectId, projectName, setProject } = useProject()
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
 
   const isActive = (path: string) => location.pathname === path
@@ -15,18 +15,25 @@ export default function Navigation() {
     const load = async () => {
       try {
         const res = await axios.get('http://localhost:8000/projects')
-        setProjects(res.data.projects || [])
+        const list = res.data.projects || []
+        setProjects(list)
+        // Sync stored project name on first load
+        if (projectId) {
+          const found = list.find((p: any) => p.id === projectId)
+          if (found) setProject(found.id, found.name)
+        }
       } catch {}
     }
     load()
-  }, [])
+  }, [projectId, setProject])
 
   const createProject = async () => {
+    const name = window.prompt('Nome del progetto (opzionale):', '') || ''
     try {
-      const res = await axios.post('http://localhost:8000/projects', { name: '' })
+      const res = await axios.post('http://localhost:8000/projects', { name })
       const p = { id: res.data.id, name: res.data.name }
       setProjects(prev => [...prev, p])
-      setProjectId(p.id)
+      setProject(p.id, p.name)
     } catch (e) {
       // ignore
     }
@@ -46,7 +53,11 @@ export default function Navigation() {
             <div className="flex items-center space-x-2">
               <select
                 value={projectId || ''}
-                onChange={(e) => setProjectId(e.target.value || null)}
+                onChange={(e) => {
+                  const id = e.target.value || null
+                  const name = id ? (projects.find(p => p.id === id)?.name || null) : null
+                  setProject(id, name)
+                }}
                 className="text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">Default</option>
@@ -58,6 +69,11 @@ export default function Navigation() {
                 <Plus className="h-4 w-4" />
               </button>
             </div>
+            {projectId && (
+              <div className="hidden md:block text-sm text-gray-600 self-center">
+                Progetto: <span className="font-medium">{projectName}</span>
+              </div>
+            )}
 
             <Link
               to="/"

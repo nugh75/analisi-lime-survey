@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Database, FileText, BarChart3, Settings } from 'lucide-react'
+import { Database, FileText, BarChart3, Settings, Folder, Trash2, Pencil } from 'lucide-react'
 import axios from 'axios'
 import { useProject } from '../context/ProjectContext'
 
@@ -16,14 +16,67 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
   const [usefulColumns, setUsefulColumns] = useState<string[]>([])
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [datasetFile, setDatasetFile] = useState<string | null>(null)
+  const [projectDetails, setProjectDetails] = useState<any | null>(null)
   const navigate = useNavigate()
-  const { projectId } = useProject()
+  const { projectId, projectName, setProject } = useProject()
 
   useEffect(() => {
     if (mergedFile) {
       loadHeaders()
     }
   }, [mergedFile])
+
+  useEffect(() => {
+    const fetchDetails = async () => {
+      if (!projectId) {
+        setProjectDetails(null)
+        return
+      }
+      try {
+        const res = await axios.get(`http://localhost:8000/projects/${projectId}`)
+        setProjectDetails(res.data)
+      } catch {
+        setProjectDetails(null)
+      }
+    }
+    fetchDetails()
+  }, [projectId])
+
+  const renameProject = async () => {
+    if (!projectId) return
+    const newName = window.prompt('Nuovo nome progetto:', projectName || '')
+    if (newName === null) return
+    try {
+      const res = await axios.patch(`http://localhost:8000/projects/${projectId}`, { name: newName })
+      setProject(res.data.id, res.data.name)
+      setProjectDetails(res.data)
+    } catch {}
+  }
+
+  const deleteProject = async () => {
+    if (!projectId) return
+    const ok = window.confirm('Eliminare il progetto? Questa operazione rimuoverà anche i file caricati.')
+    if (!ok) return
+    try {
+      await axios.delete(`http://localhost:8000/projects/${projectId}`)
+      // Reset selection to default
+      setProject(null, null)
+      setProjectDetails(null)
+      navigate('/')
+    } catch {}
+  }
+
+  const keepOnlyMerges = async () => {
+    if (!projectId) return
+    const ok = window.confirm('Cancellare tutti i file Excel non uniti (non merged_*)?')
+    if (!ok) return
+    try {
+      await axios.post(`http://localhost:8000/projects/${projectId}/keep-only-merges`)
+      // refresh details
+      const res = await axios.get(`http://localhost:8000/projects/${projectId}`)
+      setProjectDetails(res.data)
+    } catch {}
+  }
 
   const loadHeaders = async () => {
     setLoading(true)
@@ -57,7 +110,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
       // Response: { selected_columns, dataset_file, columns }
       setUsefulColumns(response.data.columns)
       setSelectedColumns(response.data.columns)
-  setDatasetFile(response.data.dataset_file)
+      setDatasetFile(response.data.dataset_file)
     } catch (err) {
       console.error('Failed to select columns:', err)
     } finally {
@@ -97,14 +150,14 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
 
   if (!mergedFile) {
     return (
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-screen-2xl mx-auto">
         <div className="card text-center">
           <Database className="mx-auto h-16 w-16 text-gray-400 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">No Data Available</h2>
           <p className="text-gray-600 mb-6">Please upload and merge files first</p>
           <button
             onClick={() => navigate('/')}
-            className="btn-primary"
+            className="btn-primary text-base px-4 py-2"
           >
             Go to Upload
           </button>
@@ -114,9 +167,52 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-screen-2xl mx-auto space-y-6">
       <div className="card">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Data Analysis Dashboard</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Data Analysis Dashboard</h2>
+        {projectId && (
+          <p className="text-sm text-gray-600 mb-6">Progetto attivo: <span className="font-medium">{projectName}</span></p>
+        )}
+        
+        {/* Project Details Panel */}
+        {projectId && projectDetails && (
+          <div className="mb-6 border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <Folder className="h-5 w-5 text-gray-700" />
+                <h3 className="text-lg font-medium text-gray-900">Dettagli Progetto</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={keepOnlyMerges} className="btn-secondary py-1 px-3">Mantieni solo merged</button>
+                <button onClick={renameProject} className="btn-secondary py-1 px-2">
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button onClick={deleteProject} className="btn-secondary py-1 px-2 text-red-600 border-red-300 hover:bg-red-50">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="text-sm text-gray-700 space-y-2">
+              <div><span className="font-medium">Nome:</span> {projectDetails.name}</div>
+              <div><span className="font-medium">Creato il:</span> {projectDetails.created_at}</div>
+              <div>
+                <span className="font-medium">Merged file:</span> {projectDetails.merged_file || '—'}
+              </div>
+              <div>
+                <span className="font-medium">File caricati:</span>
+                <ul className="list-disc ml-6 mt-1 space-y-1">
+                  {projectDetails.files?.length ? (
+                    projectDetails.files.map((f: string, i: number) => (
+                      <li key={i} className="truncate" title={f}>{f}</li>
+                    ))
+                  ) : (
+                    <li className="text-gray-500">Nessun file</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* File Info */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
@@ -153,7 +249,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
             <button
               onClick={selectUsefulColumns}
               disabled={loading}
-              className="btn-primary disabled:opacity-50"
+              className="btn-primary disabled:opacity-50 text-base px-4 py-2"
             >
               <Settings className="h-4 w-4 mr-2" />
               {loading ? 'Analyzing...' : 'Select Useful Columns'}
@@ -192,7 +288,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
                 <button
                   onClick={loadDataset}
                   disabled={loading || selectedColumns.length === 0}
-                  className="btn-primary disabled:opacity-50"
+                  className="btn-primary disabled:opacity-50 text-base px-4 py-2"
                 >
                   <BarChart3 className="h-4 w-4 mr-2" />
                   {loading ? 'Loading...' : 'Start Analysis'}
@@ -202,14 +298,14 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
                   onClick={() => {
                     setSelectedColumns([...usefulColumns])
                   }}
-                  className="btn-secondary"
+                  className="btn-secondary text-base px-4 py-2"
                 >
                   Select All
                 </button>
 
                 <button
                   onClick={() => setSelectedColumns([])}
-                  className="btn-secondary"
+                  className="btn-secondary text-base px-4 py-2"
                 >
                   Clear All
                 </button>
