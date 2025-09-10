@@ -2,8 +2,18 @@ import { useState, useEffect } from 'react'
 import { BarChart3, Download, Filter, ChevronLeft, ChevronRight, FileText } from 'lucide-react'
 import Plot from 'react-plotly.js'
 import axios from 'axios'
+import { API_BASE_URL } from '../services/api'
 import { useProject } from '../context/ProjectContext'
 import { useMode } from '../context/ModeContext'
+import type { Data, Layout } from 'plotly.js'
+import type {
+  AnalyzeQuestionResponse,
+  ChartTypeItem,
+  QuestionGroupsResponse,
+  DatasetSummary,
+  SubQuestion,
+  ChartTypesResponse,
+} from '../types/api'
 
 // Simple color palette for multi-trace charts
 const PlotlyColors = [
@@ -13,24 +23,25 @@ const PlotlyColors = [
 ]
 
 interface AnalysisResultsProps {
-  dataset: any
+  dataset: DatasetSummary | null
 }
 
 export default function AnalysisResults({ dataset = null }: AnalysisResultsProps) {
-  const [questionGroups, setQuestionGroups] = useState<any[]>([])
+  const [questionGroups, setQuestionGroups] = useState<string[]>([])
   const [selectedGroup, setSelectedGroup] = useState<string>('')
   const [chartType, setChartType] = useState<string>('bar')
-  const [chartTypes, setChartTypes] = useState<{ value: string; label: string }[]>([])
-  const [analysisResult, setAnalysisResult] = useState<any>(null)
+  const [chartTypes, setChartTypes] = useState<ChartTypeItem[]>([])
+  const [analysisResult, setAnalysisResult] = useState<AnalyzeQuestionResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [groupLabels, setGroupLabels] = useState<Record<string, string>>({})
-  const [likertFamilies, setLikertFamilies] = useState<Record<string, string>>({})
+  const [likertFamilies, setLikertFamilies] = useState<Record<string, string | null>>({})
   const [selectedSubIdx, setSelectedSubIdx] = useState<number>(0)
   const [showPercentages, setShowPercentages] = useState<boolean>(true)
   const { projectId, projectName, setProject } = useProject()
   const { mode } = useMode()
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (dataset) {
       loadQuestionGroups()
@@ -74,9 +85,11 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
   useEffect(() => {
     const loadProjects = async () => {
       try {
-        const res = await axios.get('http://localhost:8000/projects')
+  const res = await axios.get(`${API_BASE_URL}/projects`)
         setProjects(res.data.projects || [])
-      } catch {}
+      } catch (e) {
+        console.warn('Failed to load projects', e)
+      }
     }
     loadProjects()
   }, [])
@@ -84,12 +97,12 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
   const loadQuestionGroups = async () => {
     try {
       const url = projectId 
-        ? `http://localhost:8000/projects/${projectId}/question-groups`
-        : 'http://localhost:8000/question-groups'
-      const response = await axios.get(url)
+        ? `${API_BASE_URL}/projects/${projectId}/question-groups`
+        : `${API_BASE_URL}/question-groups`
+      const response = await axios.get<QuestionGroupsResponse>(url)
       setQuestionGroups(response.data.groups)
       setGroupLabels(response.data.labels || {})
-  setLikertFamilies(response.data.likert_families || {})
+      setLikertFamilies(response.data.likert_families || {})
       if (response.data.groups.length > 0) {
         setSelectedGroup(response.data.groups[0])
       }
@@ -97,14 +110,14 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
       // Se è un progetto e il dataset non è caricato, prova auto-load con merged_file
       if (projectId) {
         try {
-          const proj = await axios.get(`http://localhost:8000/projects/${projectId}`)
+          const proj = await axios.get(`${API_BASE_URL}/projects/${projectId}`)
           const merged = proj.data?.merged_file
           if (merged) {
-            await axios.post(`http://localhost:8000/projects/${projectId}/load-dataset`, {
+            await axios.post(`${API_BASE_URL}/projects/${projectId}/load-dataset`, {
               file_path: merged,
             })
             // Riprova a caricare i gruppi
-            const response2 = await axios.get(`http://localhost:8000/projects/${projectId}/question-groups`)
+            const response2 = await axios.get(`${API_BASE_URL}/projects/${projectId}/question-groups`)
             setQuestionGroups(response2.data.groups)
             setGroupLabels(response2.data.labels || {})
             setLikertFamilies(response2.data.likert_families || {})
@@ -139,7 +152,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
 
   const loadChartTypes = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/chart-types')
+      const response = await axios.get<ChartTypesResponse>(`${API_BASE_URL}/chart-types`)
       // Backend returns array of objects { value, label, description }
       setChartTypes(response.data.chart_types)
       if (response.data.chart_types?.length) {
@@ -159,13 +172,13 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
       const form = new FormData()
       form.append('group_key', selectedGroup)
       form.append('chart_type', chartType)
-  form.append('show_percentages', showPercentages ? 'true' : 'false')
+      form.append('show_percentages', showPercentages ? 'true' : 'false')
       form.append('include_na', 'false')
 
       const url = projectId 
-        ? `http://localhost:8000/projects/${projectId}/analyze-question`
-        : 'http://localhost:8000/analyze-question'
-      const response = await axios.post(url, form, {
+        ? `${API_BASE_URL}/projects/${projectId}/analyze-question`
+        : `${API_BASE_URL}/analyze-question`
+      const response = await axios.post<AnalyzeQuestionResponse>(url, form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setAnalysisResult(response.data)
@@ -180,7 +193,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
   const sanitizeText = (s: string | undefined | null) => {
     if (!s) return ''
     return String(s)
-      .replace(/<br\s*\/?\>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, ' ')
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
@@ -234,9 +247,9 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
     if (!dist) return
     const rows = [
       ['Valore', 'Conteggio', 'Percentuale (%)'],
-      ...dist.map((r: any) => [r.value, r.count, typeof r.percentage === 'number' ? r.percentage.toFixed(1) : r.percentage])
+      ...dist.map((r) => [r.value, r.count, typeof r.percentage === 'number' ? r.percentage.toFixed(1) : r.percentage])
     ]
-    const csv = rows.map(r => r.map((v: any) => {
+    const csv = rows.map(r => r.map((v) => {
       const s = String(v ?? '')
       // Escape double quotes and wrap if needed
       if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
@@ -411,7 +424,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                     </tr>
                   </thead>
                   <tbody>
-                    {analysisResult.subquestions.map((sq: any, idx: number) => (
+                    {analysisResult.subquestions.map((sq, idx: number) => (
                       <tr key={idx} className="border-t border-gray-200">
                         <td className="p-2 align-top">{sq.index}</td>
                         <td className="p-2 align-top">
@@ -444,7 +457,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                     </tr>
                   </thead>
                   <tbody>
-                    {analysisResult.subquestions[selectedSubIdx].distribution.map((row: any, idx: number) => (
+                    {analysisResult.subquestions[selectedSubIdx].distribution!.map((row, idx: number) => (
                       <tr key={idx} className="border-t border-gray-200">
                         <td className="p-2 align-top">{row.value}</td>
                         <td className="p-2 align-top">{row.count}</td>
@@ -515,9 +528,9 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
             <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
               {(() => {
                 const gc = analysisResult.group_chart
-                if (chartType === 'stacked_100' && gc?.traces && gc?.x) {
+                if (gc && chartType === 'stacked_100' && gc.chart_type === 'stacked_100') {
                   const x = gc.x
-                  const traces = (gc.traces as any[]).map((t: any, idx: number) => ({
+                  const traces: Data[] = gc.traces.map((t, idx: number) => ({
                     type: 'bar',
                     x,
                     y: t.values,
@@ -526,21 +539,21 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                   }))
                   return (
                     <Plot
-                      data={traces as any}
+                      data={traces}
                       layout={{
-                        title: gc.title || 'Distribuzione 100% (gruppo)',
+                        title: { text: gc.title || 'Distribuzione 100% (gruppo)' },
                         barmode: 'stack',
                         margin: { l: 60, r: 40, t: 60, b: 100 },
-                        yaxis: { title: gc.y_label || 'Percentuale (%)', range: [0, 100] },
+                        yaxis: { title: { text: gc.y_label || 'Percentuale (%)' }, range: [0, 100] },
                         xaxis: { automargin: true },
-                      }}
+                      } as Partial<Layout>}
                       config={{ displaylogo: false, responsive: true }}
                       useResizeHandler
                       style={{ width: '100%', height: '560px' }}
                     />
                   )
                 }
-                if (chartType === 'heatmap_corr' && gc?.matrix && gc?.labels) {
+                if (gc && chartType === 'heatmap_corr' && gc.chart_type === 'heatmap_corr') {
                   return (
                     <Plot
                       data={[{
@@ -553,21 +566,21 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                         zmin: -1,
                         zmax: 1,
                         colorbar: { title: { text: 'Corr' } },
-                      }]}
+                      }] as Data[]}
                       layout={{
-                        title: gc.title || 'Correlazioni (gruppo)',
+                        title: { text: gc.title || 'Correlazioni (gruppo)' },
                         margin: { l: 120, r: 40, t: 60, b: 120 },
                         xaxis: { automargin: true },
                         yaxis: { automargin: true },
-                      }}
+                      } as Partial<Layout>}
                       config={{ displaylogo: false, responsive: true }}
                       useResizeHandler
                       style={{ width: '100%', height: '640px' }}
                     />
                   )
                 }
-                if (chartType === 'box_multi' && gc?.traces) {
-                  const traces = (gc.traces as any[]).map((t: any, idx: number) => ({
+                if (gc && chartType === 'box_multi' && gc.chart_type === 'box_multi') {
+                  const traces: Data[] = gc.traces.map((t, idx: number) => ({
                     type: 'box',
                     y: t.y,
                     name: t.name,
@@ -576,14 +589,14 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                   }))
                   return (
                     <Plot
-                      data={traces as any}
+                      data={traces}
                       layout={{
-                        title: gc.title || 'Box plot multiplo (gruppo)',
+                        title: { text: gc.title || 'Box plot multiplo (gruppo)' },
                         margin: { l: 60, r: 40, t: 60, b: 100 },
-                        yaxis: { title: gc.y_label || 'Punteggio Likert' },
+                        yaxis: { title: { text: gc.y_label || 'Punteggio Likert' } },
                         xaxis: { automargin: true },
                         boxmode: 'group',
-                      }}
+                      } as Partial<Layout>}
                       config={{ displaylogo: false, responsive: true }}
                       useResizeHandler
                       style={{ width: '100%', height: '560px' }}
@@ -598,9 +611,9 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
           {/* Small multiples: grid of subcharts */}
           {chartType === 'small_multiples' && analysisResult?.subquestions?.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
-              {analysisResult.subquestions.map((sq: any, idx: number) => {
+              {analysisResult.subquestions.map((sq: SubQuestion, idx: number) => {
                 const chart = sq.chart
-                if (!chart || chart.error) return null
+                if (!chart || sq.error) return null
                 const labels = chart.labels || []
                 const values = chart.values || []
                 const text = chart.text_labels || []
@@ -615,12 +628,12 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                         y: values,
                         text: text,
                         marker: { color: colors },
-                      }]}
+                      }] as Data[]}
                       layout={{
                         margin: { l: 40, r: 20, t: 10, b: 60 },
-                        yaxis: { title: chart.y_label },
+                        yaxis: { title: { text: chart.y_label } },
                         xaxis: { automargin: true },
-                      }}
+                      } as Partial<Layout>}
                       config={{ displaylogo: false, responsive: true }}
                       useResizeHandler
                       style={{ width: '100%', height: '360px' }}
@@ -648,7 +661,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                     onChange={(e) => setSelectedSubIdx(parseInt(e.target.value, 10))}
                     className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base py-2"
                   >
-          {analysisResult.subquestions.map((sq: any, idx: number) => (
+          {analysisResult.subquestions.map((sq, idx: number) => (
                       <option key={idx} value={idx}>
             {sanitizeText(sq.chart?.title) || sq.column}
                       </option>
@@ -667,35 +680,35 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                 const text = chart?.text_labels || []
                 const colors = chart?.colors || []
 
-                let data: any[] = []
-                let layout: any = {
-                  title: chart?.title,
+                let data: Data[] = []
+                let layout: Partial<Layout> = {
+                  title: { text: chart?.title },
                   autosize: true,
                   margin: { l: 60, r: 40, t: 60, b: 100 },
                 }
 
-        if (ct === 'pie' || ct === 'donut') {
+                if (ct === 'pie' || ct === 'donut') {
                   data = [{
                     type: 'pie',
                     labels,
                     values,
                     text: text,
-          textinfo: 'label+percent',
+                    textinfo: 'label+percent',
                     marker: { colors },
-          hole: ct === 'donut' ? (chart?.hole ?? 0.5) : 0,
-                  }]
+                    hole: ct === 'donut' ? (chart?.hole ?? 0.5) : 0,
+                  } as Data]
                   layout = { ...layout, margin: { l: 40, r: 40, t: 60, b: 40 } }
                 } else if (ct === 'histogram' || ct === 'gaussian') {
                   const x = chart?.numeric_data || []
                   const bins = chart?.bins || undefined
-                  const traces: any[] = [{
+                  const traces: Data[] = [{
                     type: 'histogram',
                     x,
                     nbinsx: bins,
                     histnorm: 'probability density',
                     marker: { color: colors[0] || '#4ECDC4' },
                     opacity: 0.6,
-                  }]
+                  } as Data]
                   if (ct === 'gaussian' && chart?.gaussian && x.length > 1) {
                     const mean = chart.gaussian.mean
                     const std = chart.gaussian.std || 1
@@ -718,10 +731,10 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                       y: ys,
                       line: { color: '#E17055', width: 2 },
                       name: 'Gaussiana',
-                    })
+                    } as Data)
                   }
                   data = traces
-                  layout = { ...layout, xaxis: { title: chart?.x_label || 'Valore' }, yaxis: { title: 'Densità' } }
+                  layout = { ...layout, xaxis: { title: { text: chart?.x_label || 'Valore' } }, yaxis: { title: { text: 'Densità' } } }
                 } else if (ct === 'box_likert') {
                   const y = chart?.numeric_data || []
                   data = [{
@@ -730,8 +743,8 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                     name: chart?.title || 'Distribuzione',
                     boxpoints: 'outliers',
                     marker: { color: colors[0] || '#4ECDC4' },
-                  }]
-                  layout = { ...layout, yaxis: { title: chart?.y_label || 'Punteggio Likert' } }
+                  } as Data]
+                  layout = { ...layout, yaxis: { title: { text: chart?.y_label || 'Punteggio Likert' } } }
                 } else {
                   // bar, bar_h, likert_bar fall back to bar visuals
                   const isHorizontal = ct === 'bar_h'
@@ -742,17 +755,17 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                     text: text,
                     marker: { color: colors },
                     orientation: isHorizontal ? 'h' : 'v',
-                  }]
+                  } as Data]
                   if (isHorizontal) {
                     // Ensure long category labels are fully visible on the left
                     layout = {
                       ...layout,
-                      xaxis: { title: chart?.y_label, automargin: true },
+                      xaxis: { title: { text: chart?.y_label }, automargin: true },
                       yaxis: { automargin: true },
                       margin: { ...(layout.margin || {}), l: Math.max((layout.margin?.l ?? 0), 160) },
                     }
                   } else {
-                    layout = { ...layout, yaxis: { title: chart?.y_label }, xaxis: { automargin: true } }
+                    layout = { ...layout, yaxis: { title: { text: chart?.y_label } }, xaxis: { automargin: true } }
                   }
                 }
 

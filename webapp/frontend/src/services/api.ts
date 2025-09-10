@@ -1,25 +1,30 @@
 import axios from 'axios'
 import type {
-  UploadResponse,
+  UploadFilesResponse,
   MergeResponse,
-  HeaderAnalysis,
-  ColumnSelection,
-  Dataset,
-  AnalysisResult,
+  HeaderAnalysisRow,
+  ColumnSelectionResponse,
+  DatasetSummary,
+  AnalyzeQuestionResponse,
   QuestionGroupsResponse,
-  ChartTypesResponse
+  ChartTypesResponse,
+  HeaderAnalysisResponse,
 } from '../types/api'
 
-const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000'
+// Central API base URL used across the app
+// Same-origin path '/api' works in both environments:
+//  - Dev: Vite proxy forwards '/api' -> backend (see vite.config.ts)
+//  - Prod: Nginx forwards '/api' -> backend (see nginx.conf)
+export const API_BASE_URL = '/api'
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000, // 30 seconds timeout for large file operations
 })
 
 export const apiService = {
   // File management
-  uploadFiles: async (files: File[]): Promise<UploadResponse> => {
+  uploadFiles: async (files: File[]): Promise<UploadFilesResponse> => {
     const formData = new FormData()
     files.forEach(file => {
       formData.append('files', file)
@@ -33,8 +38,8 @@ export const apiService = {
     return response.data
   },
 
-  mergeFiles: async (): Promise<MergeResponse> => {
-    const response = await api.post('/merge-files')
+  mergeFiles: async (file_paths: string[]): Promise<MergeResponse> => {
+    const response = await api.post('/merge-files', { file_paths })
     return response.data
   },
 
@@ -44,26 +49,24 @@ export const apiService = {
   },
 
   // Data analysis
-  analyzeHeaders: async (): Promise<HeaderAnalysis> => {
-    const response = await api.post('/analyze-headers')
+  analyzeHeaders: async (file_path: string): Promise<HeaderAnalysisResponse> => {
+    const response = await api.post('/analyze-headers', { file_path })
     return response.data
   },
 
-  selectColumns: async (): Promise<ColumnSelection> => {
-    const response = await api.post('/select-columns')
+  selectColumns: async (file_path: string, headers_analysis: HeaderAnalysisRow[]): Promise<ColumnSelectionResponse> => {
+    const response = await api.post('/select-columns', { file_path, headers_analysis })
     return response.data
   },
 
-  loadDataset: async (columns: string[]): Promise<Dataset> => {
-    const response = await api.post('/load-dataset', { columns })
+  loadDataset: async (file_path: string): Promise<DatasetSummary> => {
+    const response = await api.post('/load-dataset', { file_path })
     return response.data
   },
 
-  analyzeQuestion: async (questionGroup: string, chartTypes: string[]): Promise<AnalysisResult> => {
-    const response = await api.post('/analyze-question', {
-      question_group: questionGroup,
-      chart_types: chartTypes
-    })
+  analyzeQuestion: async (form: FormData, projectId?: string): Promise<AnalyzeQuestionResponse> => {
+    const url = projectId ? `/projects/${projectId}/analyze-question` : '/analyze-question'
+    const response = await api.post(url, form, { headers: { 'Content-Type': 'multipart/form-data' } })
     return response.data
   },
 

@@ -8,11 +8,13 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { useProject } from './context/ProjectContext'
 import { useMode } from './context/ModeContext'
 import axios from 'axios'
+import { API_BASE_URL } from './services/api'
+import type { DatasetSummary, ProjectInfo } from './types/api'
 
 function App() {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
   const [mergedFile, setMergedFile] = useState<string | null>(null)
-  const [dataset, setDataset] = useState<any>(null)
+  const [dataset, setDataset] = useState<DatasetSummary | null>(null)
   const { projectId, projectName, setProject } = useProject()
   const { mode } = useMode()
 
@@ -30,8 +32,8 @@ function App() {
         // If we only have the name (e.g., after refresh) try to resolve the id
         if (!effectiveId && projectName) {
           try {
-            const list = await axios.get('http://localhost:8000/projects')
-            const found = (list.data?.projects || []).find((p: any) => p.name === projectName)
+      const list = await axios.get(`${API_BASE_URL}/projects`)
+      const found = (list.data?.projects || []).find((p: ProjectInfo) => p.name === projectName)
             if (found) {
               setProject(found.id, found.name)
               effectiveId = found.id
@@ -41,10 +43,10 @@ function App() {
         // Fallback: if still no id, pick a non-default project (prefer one with merged_file)
         if (!effectiveId) {
           try {
-            const list = await axios.get('http://localhost:8000/projects')
-            const projects = (list.data?.projects || [])
-            const nonDefault = projects.filter((p: any) => p.id !== 'default')
-            const withMerged = nonDefault.find((p: any) => !!p.merged_file)
+            const list = await axios.get(`${API_BASE_URL}/projects`)
+      const projects: ProjectInfo[] = (list.data?.projects || [])
+      const nonDefault = projects.filter((p) => p.id !== 'default')
+      const withMerged = nonDefault.find((p) => !!p.merged_file)
             const pick = withMerged || nonDefault[0]
             if (pick) {
               setProject(pick.id, pick.name)
@@ -53,8 +55,8 @@ function App() {
           } catch {}
         }
         const idOrDefault = effectiveId || 'default'
-        const res = await axios.get(`http://localhost:8000/projects/${idOrDefault}`)
-        const details = res.data || {}
+    const res = await axios.get<ProjectInfo>(`${API_BASE_URL}/projects/${idOrDefault}`)
+    const details = res.data || {}
         if (Array.isArray(details.files)) setUploadedFiles(details.files)
         setMergedFile(details.merged_file || null)
       } catch {
@@ -71,9 +73,9 @@ function App() {
       try {
         const effectiveId = projectId || 'default'
         const url = projectId 
-          ? `http://localhost:8000/projects/${effectiveId}/load-dataset`
-          : 'http://localhost:8000/load-dataset'
-        const resp = await axios.post(url, { file_path: mergedFile })
+          ? `${API_BASE_URL}/projects/${effectiveId}/load-dataset`
+          : `${API_BASE_URL}/load-dataset`
+  const resp = await axios.post<DatasetSummary>(url, { file_path: mergedFile })
         setDataset(resp.data)
       } catch {
         // ignore
@@ -106,7 +108,6 @@ function App() {
                     element={
                       <Dashboard 
                         mergedFile={mergedFile}
-                        dataset={dataset}
                         setDataset={setDataset}
                       />
                     } 

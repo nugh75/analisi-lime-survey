@@ -2,8 +2,10 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { BarChart3, Upload, FileText, Plus, Eye, Pencil } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
+import { API_BASE_URL } from '../services/api'
 import { useProject } from '../context/ProjectContext'
 import { useMode } from '../context/ModeContext'
+import type { ProjectInfo } from '../types/api'
 
 export default function Navigation() {
   const location = useLocation()
@@ -18,30 +20,34 @@ export default function Navigation() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await axios.get('http://localhost:8000/projects')
-        let list = res.data.projects || []
+        const res = await axios.get(`${API_BASE_URL}/projects`)
+        let list: ProjectInfo[] = res.data.projects || []
         setProjects(list)
         // Sync stored project by id if present
         if (projectId) {
-          const foundById = list.find((p: any) => p.id === projectId)
+          const foundById = list.find((p) => p.id === projectId)
           if (foundById) setProject(foundById.id, foundById.name)
         }
         // If we have only a name stored and it doesn't exist on server, create it
         if (!projectId && projectName) {
-          const foundByName = list.find((p: any) => p.name === projectName)
+          const foundByName = list.find((p) => p.name === projectName)
           if (foundByName) {
             setProject(foundByName.id, foundByName.name)
           } else {
             try {
-              const created = await axios.post('http://localhost:8000/projects', { name: projectName })
+              const created = await axios.post(`${API_BASE_URL}/projects`, { name: projectName })
               const p = { id: created.data.id, name: created.data.name }
               setProject(p.id, p.name)
               list = [...list, p]
               setProjects(list)
-            } catch {}
+            } catch (e) {
+              console.warn('Auto-create project failed', e)
+            }
           }
         }
-      } catch {}
+      } catch (e) {
+        console.warn('Load projects failed', e)
+      }
     }
     load()
   }, [projectId, projectName, setProject])
@@ -54,12 +60,12 @@ export default function Navigation() {
   const createProject = async () => {
     const name = window.prompt('Nome del progetto (opzionale):', '') || ''
     try {
-      const res = await axios.post('http://localhost:8000/projects', { name })
+      const res = await axios.post(`${API_BASE_URL}/projects`, { name })
       const p = { id: res.data.id, name: res.data.name }
       setProjects(prev => [...prev, p])
       setProject(p.id, p.name)
     } catch (e) {
-      // ignore
+      console.warn('Create project failed', e)
     }
   }
 

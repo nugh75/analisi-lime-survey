@@ -2,8 +2,10 @@ import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileX, Check, AlertCircle } from 'lucide-react'
 import axios from 'axios'
+import { API_BASE_URL } from '../services/api'
 import { useProject } from '../context/ProjectContext'
 import { useNavigate } from 'react-router-dom'
+import type { UploadFilesResponse, MergeResponse } from '../types/api'
 
 interface FileUploadProps {
   uploadedFiles: string[]
@@ -20,8 +22,9 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
   const navigate = useNavigate()
   const { projectId, projectName } = useProject()
 
-  const toErrorMessage = (err: any): string => {
-    const detail = err?.response?.data?.detail
+  const toErrorMessage = (err: unknown): string => {
+    const e = err as any
+    const detail = e?.response?.data?.detail
     if (typeof detail === 'string') return detail
     if (Array.isArray(detail)) {
       // FastAPI validation errors array
@@ -33,7 +36,7 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
       if (detail.msg) return detail.msg
       try { return JSON.stringify(detail) } catch { /* ignore */ }
     }
-  return err?.message || 'Operazione non riuscita'
+    return (e?.message as string) || 'Operazione non riuscita'
   }
 
   // Debug
@@ -55,9 +58,9 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
       })
 
       const uploadUrl = projectId 
-        ? `http://localhost:8000/projects/${projectId}/upload-files`
-        : 'http://localhost:8000/upload-files'
-      const response = await axios.post(uploadUrl, formData, {
+        ? `${API_BASE_URL}/projects/${projectId}/upload-files`
+        : `${API_BASE_URL}/upload-files`
+  const response = await axios.post<UploadFilesResponse>(uploadUrl, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -70,12 +73,12 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
   setUploadedFiles(filesFromApi)
   setUploadedFilePaths(filePathsFromApi)
       setSuccess(`Caricati con successo ${acceptedFiles.length} file`)
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(toErrorMessage(err) || 'Caricamento non riuscito')
     } finally {
       setUploading(false)
     }
-  }, [setUploadedFiles])
+  }, [setUploadedFiles, projectId])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -95,15 +98,15 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
     try {
       // Backend expects body with { file_paths: [...] }
       const mergeUrl = projectId 
-        ? `http://localhost:8000/projects/${projectId}/merge-files`
-        : 'http://localhost:8000/merge-files'
-      const response = await axios.post(mergeUrl, {
+        ? `${API_BASE_URL}/projects/${projectId}/merge-files`
+        : `${API_BASE_URL}/merge-files`
+      const response = await axios.post<MergeResponse>(mergeUrl, {
         file_paths: uploadedFilePaths,
       })
   setMergedFile(response.data.merged_file)
   setSuccess('File uniti con successo!')
       navigate('/dashboard')
-    } catch (err: any) {
+    } catch (err: unknown) {
   setError(toErrorMessage(err) || 'Unione non riuscita')
     } finally {
       setMerging(false)
@@ -113,14 +116,14 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
   const handleCleanup = async () => {
     try {
       const cleanupUrl = projectId 
-        ? `http://localhost:8000/projects/${projectId}/cleanup`
-        : 'http://localhost:8000/cleanup'
+        ? `${API_BASE_URL}/projects/${projectId}/cleanup`
+        : `${API_BASE_URL}/cleanup`
       await axios.delete(cleanupUrl)
   setUploadedFiles([])
   setMergedFile(null)
   setUploadedFilePaths([])
   setSuccess('Pulizia completata')
-    } catch (err: any) {
+  } catch (err: unknown) {
   setError(toErrorMessage(err) || 'Pulizia non riuscita')
     }
   }

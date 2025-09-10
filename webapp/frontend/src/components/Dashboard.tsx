@@ -2,21 +2,22 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Database, FileText, BarChart3, Settings, Folder, Trash2, Pencil } from 'lucide-react'
 import axios from 'axios'
+import { API_BASE_URL } from '../services/api'
 import { useProject } from '../context/ProjectContext'
+import type { HeaderAnalysisResponse, ColumnSelectionResponse, DatasetSummary, ProjectInfo } from '../types/api'
 
 interface DashboardProps {
   mergedFile: string | null
-  dataset: any
-  setDataset: (dataset: any) => void
+  setDataset: (dataset: DatasetSummary | null) => void
 }
 
-export default function Dashboard({ mergedFile = null, dataset = null, setDataset }: DashboardProps) {
+export default function Dashboard({ mergedFile = null, setDataset }: DashboardProps) {
   const [loading, setLoading] = useState(false)
-  const [headers, setHeaders] = useState<any>(null)
+  const [headers, setHeaders] = useState<HeaderAnalysisResponse | null>(null)
   const [usefulColumns, setUsefulColumns] = useState<string[]>([])
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [datasetFile, setDatasetFile] = useState<string | null>(null)
-  const [projectDetails, setProjectDetails] = useState<any | null>(null)
+  const [projectDetails, setProjectDetails] = useState<ProjectInfo | null>(null)
   const navigate = useNavigate()
   const { projectId, projectName, setProject } = useProject()
 
@@ -33,9 +34,9 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
         return
       }
       try {
-        const res = await axios.get(`http://localhost:8000/projects/${projectId}`)
+        const res = await axios.get<ProjectInfo>(`${API_BASE_URL}/projects/${projectId}`)
         setProjectDetails(res.data)
-      } catch {
+      } catch (e) {
         setProjectDetails(null)
       }
     }
@@ -47,10 +48,12 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
     const newName = window.prompt('Nuovo nome progetto:', projectName || '')
     if (newName === null) return
     try {
-      const res = await axios.patch(`http://localhost:8000/projects/${projectId}`, { name: newName })
+      const res = await axios.patch<ProjectInfo>(`${API_BASE_URL}/projects/${projectId}`, { name: newName })
       setProject(res.data.id, res.data.name)
       setProjectDetails(res.data)
-    } catch {}
+    } catch (e) {
+      console.warn('Rename failed', e)
+    }
   }
 
   const deleteProject = async () => {
@@ -58,12 +61,14 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
     const ok = window.confirm('Eliminare il progetto? Questa operazione rimuoverà anche i file caricati.')
     if (!ok) return
     try {
-      await axios.delete(`http://localhost:8000/projects/${projectId}`)
+  await axios.delete(`${API_BASE_URL}/projects/${projectId}`)
       // Reset selection to default
       setProject(null, null)
       setProjectDetails(null)
       navigate('/')
-    } catch {}
+    } catch (e) {
+      console.warn('Delete failed', e)
+    }
   }
 
   const keepOnlyMerges = async () => {
@@ -71,11 +76,13 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
     const ok = window.confirm('Cancellare tutti i file Excel non uniti (non merged_*)?')
     if (!ok) return
     try {
-      await axios.post(`http://localhost:8000/projects/${projectId}/keep-only-merges`)
+      await axios.post(`${API_BASE_URL}/projects/${projectId}/keep-only-merges`)
       // refresh details
-      const res = await axios.get(`http://localhost:8000/projects/${projectId}`)
+      const res = await axios.get<ProjectInfo>(`${API_BASE_URL}/projects/${projectId}`)
       setProjectDetails(res.data)
-    } catch {}
+    } catch (e) {
+      console.warn('Keep-only-merges failed', e)
+    }
   }
 
   const loadHeaders = async () => {
@@ -83,9 +90,9 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
     try {
       // Backend expects { file_path }
       const analyzeUrl = projectId 
-        ? `http://localhost:8000/projects/${projectId}/analyze-headers`
-        : 'http://localhost:8000/analyze-headers'
-      const response = await axios.post(analyzeUrl, {
+        ? `${API_BASE_URL}/projects/${projectId}/analyze-headers`
+        : `${API_BASE_URL}/analyze-headers`
+  const response = await axios.post<HeaderAnalysisResponse>(analyzeUrl, {
         file_path: mergedFile,
       })
       setHeaders(response.data)
@@ -101,9 +108,9 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
     try {
       // Backend expects { file_path, headers_analysis }
       const selectUrl = projectId 
-        ? `http://localhost:8000/projects/${projectId}/select-columns`
-        : 'http://localhost:8000/select-columns'
-      const response = await axios.post(selectUrl, {
+        ? `${API_BASE_URL}/projects/${projectId}/select-columns`
+        : `${API_BASE_URL}/select-columns`
+  const response = await axios.post<ColumnSelectionResponse>(selectUrl, {
         file_path: mergedFile,
         headers_analysis: headers?.headers ?? [],
       })
@@ -131,11 +138,11 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
         await selectUsefulColumns()
       }
 
-      const fileToLoad = datasetFile || (dataset?.dataset_file) || mergedFile
+  const fileToLoad = datasetFile || mergedFile
       const loadUrl = projectId 
-        ? `http://localhost:8000/projects/${projectId}/load-dataset`
-        : 'http://localhost:8000/load-dataset'
-      const loadResp = await axios.post(loadUrl, {
+        ? `${API_BASE_URL}/projects/${projectId}/load-dataset`
+        : `${API_BASE_URL}/load-dataset`
+  const loadResp = await axios.post<DatasetSummary>(loadUrl, {
         file_path: fileToLoad,
       })
       setDataset(loadResp.data)
