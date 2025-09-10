@@ -743,7 +743,17 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                     marker: { color: colors },
                     orientation: isHorizontal ? 'h' : 'v',
                   }]
-                  layout = { ...layout, yaxis: { title: chart?.y_label }, xaxis: { automargin: true } }
+                  if (isHorizontal) {
+                    // Ensure long category labels are fully visible on the left
+                    layout = {
+                      ...layout,
+                      xaxis: { title: chart?.y_label, automargin: true },
+                      yaxis: { automargin: true },
+                      margin: { ...(layout.margin || {}), l: Math.max((layout.margin?.l ?? 0), 160) },
+                    }
+                  } else {
+                    layout = { ...layout, yaxis: { title: chart?.y_label }, xaxis: { automargin: true } }
+                  }
                 }
 
                 return (
