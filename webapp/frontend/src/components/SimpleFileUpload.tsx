@@ -16,27 +16,27 @@ export default function SimpleFileUpload({ uploadedFiles = [], setUploadedFiles 
   })
 
   const handleTestUpload = () => {
-    const testFiles = ['test-file-1.xlsx', 'test-file-2.xlsx']
+  const testFiles = ['file-di-test-1.xlsx', 'file-di-test-2.xlsx']
     setUploadedFiles(testFiles)
-    setStatus('Test files added!')
+  setStatus('File di test aggiunti!')
   }
 
   const handleClear = () => {
     setUploadedFiles([])
-    setStatus('Files cleared!')
+  setStatus('File rimossi!')
   }
 
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Simple File Upload Test</h2>
+  <h2 className="text-2xl font-bold text-gray-900 mb-6">Test caricamento file semplice</h2>
         
         <div className="mb-4">
           <p className="text-sm text-gray-600 mb-2">
-            Uploaded Files: {uploadedFiles?.length || 0}
+            File caricati: {uploadedFiles?.length || 0}
           </p>
           <p className="text-sm text-gray-600 mb-4">
-            Status: {status}
+            Stato: {status}
           </p>
         </div>
 
@@ -45,19 +45,19 @@ export default function SimpleFileUpload({ uploadedFiles = [], setUploadedFiles 
             onClick={handleTestUpload}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
           >
-            Test Upload
+            Carica test
           </button>
           <button
             onClick={handleClear}
             className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg"
           >
-            Clear
+            Pulisci
           </button>
         </div>
 
         {uploadedFiles && uploadedFiles.length > 0 && (
           <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-3">Files:</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-3">File:</h3>
             <ul className="space-y-2">
               {uploadedFiles.map((file, index) => (
                 <li key={index} className="p-3 bg-gray-50 rounded-lg">

@@ -1,4 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Path
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict
 import os
@@ -80,6 +81,22 @@ class ProjectManager:
         if self.default_id not in self.projects:
             self.projects[self.default_id] = Project(self.default_id, "Default")
 
+    def refresh_from_disk(self):
+        """Ensure in-memory projects include any directories present on disk.
+        Keeps existing Project instances and adds any missing ones. Also ensures default exists.
+        """
+        root = os.path.join(BACKEND_BASE_DIR, "uploads", "projects")
+        if os.path.isdir(root):
+            for pid in os.listdir(root):
+                pdir = os.path.join(root, pid)
+                if os.path.isdir(pdir) and pid not in self.projects:
+                    try:
+                        self.projects[pid] = Project(pid)
+                    except Exception:
+                        pass
+        if self.default_id not in self.projects:
+            self.projects[self.default_id] = Project(self.default_id, "Default")
+
     def create_project(self, name: Optional[str] = None) -> Project:
         from uuid import uuid4
         pid = uuid4().hex[:8]
@@ -88,6 +105,8 @@ class ProjectManager:
         return proj
 
     def list_projects(self):
+        # Refresh to pick up any projects created outside this process
+        self.refresh_from_disk()
         return [
             {
                 "id": p.id,
@@ -266,6 +285,8 @@ async def load_dataset(req: LoadDatasetRequest):
             "labels": groups_data["labels"],
             "likert_families": groups_data["likert_families"],
             "total_groups": len(groups_data["groups"]),
+            "total_rows": len(proj.analyzer.data) if getattr(proj.analyzer, 'data', None) is not None else 0,
+            "total_columns": len(proj.analyzer.data.columns) if getattr(proj.analyzer, 'data', None) is not None else 0,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading dataset: {str(e)}")
@@ -296,7 +317,7 @@ async def analyze_question(
         )
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
-        return result
+        return jsonable_encoder(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error analyzing question: {str(e)}")
 
@@ -307,9 +328,15 @@ async def get_chart_types():
             {"value": "bar", "label": "Barre verticali", "description": "Ideale per confrontare categorie"},
             {"value": "bar_h", "label": "Barre orizzontali", "description": "Migliore per etichette lunghe"},
             {"value": "pie", "label": "Grafico a torta", "description": "Mostra proporzioni del totale"},
+            {"value": "donut", "label": "Grafico a ciambella", "description": "Variazione della torta con foro centrale"},
             {"value": "likert_bar", "label": "Barre Likert", "description": "Ordinate secondo scala Likert"},
             {"value": "histogram", "label": "Istogramma", "description": "Distribuzione valori numerici"},
             {"value": "gaussian", "label": "Curva gaussiana", "description": "Istogramma + curva normale"},
+            {"value": "box_likert", "label": "Box plot Likert", "description": "Distribuzione numerica codificata della scala Likert"},
+            {"value": "box_multi", "label": "Box plot multiplo (gruppo)", "description": "Più box plot per sotto-domanda (Likert)"},
+            {"value": "stacked_100", "label": "Barre impilate 100% (gruppo)", "description": "Confronto tra sotto-domande normalizzato al 100%"},
+            {"value": "heatmap_corr", "label": "Heatmap correlazioni (gruppo)", "description": "Matrice di correlazione tra sotto-domande Likert"},
+            {"value": "small_multiples", "label": "Small multiples", "description": "Più grafici piccoli per ogni sotto-domanda"},
         ]
     }
 
@@ -506,6 +533,8 @@ async def load_dataset_project(project_id: str, req: LoadDatasetRequest):
             "labels": groups_data["labels"],
             "likert_families": groups_data["likert_families"],
             "total_groups": len(groups_data["groups"]),
+            "total_rows": len(proj.analyzer.data) if getattr(proj.analyzer, 'data', None) is not None else 0,
+            "total_columns": len(proj.analyzer.data.columns) if getattr(proj.analyzer, 'data', None) is not None else 0,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading dataset: {str(e)}")
@@ -539,7 +568,7 @@ async def analyze_question_project(
         )
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
-        return result
+        return jsonable_encoder(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error analyzing question: {str(e)}")
 

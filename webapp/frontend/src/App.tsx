@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import FileUpload from './components/FileUpload'
 import Dashboard from './components/Dashboard'
 import AnalysisResults from './components/AnalysisResults'
 import Navigation from './components/Navigation'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useProject } from './context/ProjectContext'
+import { useMode } from './context/ModeContext'
 import axios from 'axios'
 
 function App() {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
   const [mergedFile, setMergedFile] = useState<string | null>(null)
   const [dataset, setDataset] = useState<any>(null)
-  const { projectId } = useProject()
+  const { projectId, projectName, setProject } = useProject()
+  const { mode } = useMode()
 
   // Debug logs (keep minimal)
   console.log('App render:', { uploadedFilesLen: uploadedFiles?.length ?? 'NA', mergedFile: !!mergedFile, dataset: !!dataset })
@@ -24,8 +26,34 @@ function App() {
       setMergedFile(null)
       setDataset(null)
       try {
-        const effectiveId = projectId || 'default'
-        const res = await axios.get(`http://localhost:8000/projects/${effectiveId}`)
+        let effectiveId = projectId
+        // If we only have the name (e.g., after refresh) try to resolve the id
+        if (!effectiveId && projectName) {
+          try {
+            const list = await axios.get('http://localhost:8000/projects')
+            const found = (list.data?.projects || []).find((p: any) => p.name === projectName)
+            if (found) {
+              setProject(found.id, found.name)
+              effectiveId = found.id
+            }
+          } catch {}
+        }
+        // Fallback: if still no id, pick a non-default project (prefer one with merged_file)
+        if (!effectiveId) {
+          try {
+            const list = await axios.get('http://localhost:8000/projects')
+            const projects = (list.data?.projects || [])
+            const nonDefault = projects.filter((p: any) => p.id !== 'default')
+            const withMerged = nonDefault.find((p: any) => !!p.merged_file)
+            const pick = withMerged || nonDefault[0]
+            if (pick) {
+              setProject(pick.id, pick.name)
+              effectiveId = pick.id
+            }
+          } catch {}
+        }
+        const idOrDefault = effectiveId || 'default'
+        const res = await axios.get(`http://localhost:8000/projects/${idOrDefault}`)
         const details = res.data || {}
         if (Array.isArray(details.files)) setUploadedFiles(details.files)
         setMergedFile(details.merged_file || null)
@@ -34,7 +62,25 @@ function App() {
       }
     }
     restore()
-  }, [projectId])
+  }, [projectId, projectName, setProject])
+
+  // Auto load dataset if we already have a merged file (both View and Edit)
+  useEffect(() => {
+    const autoLoad = async () => {
+      if (!mergedFile) return
+      try {
+        const effectiveId = projectId || 'default'
+        const url = projectId 
+          ? `http://localhost:8000/projects/${effectiveId}/load-dataset`
+          : 'http://localhost:8000/load-dataset'
+        const resp = await axios.post(url, { file_path: mergedFile })
+        setDataset(resp.data)
+      } catch {
+        // ignore
+      }
+    }
+    autoLoad()
+  }, [mergedFile, projectId])
 
   return (
     <ErrorBoundary>
@@ -43,32 +89,44 @@ function App() {
           <Navigation />
           <main className="container mx-auto px-4 py-8">
             <Routes>
-              <Route 
-                path="/" 
-                element={
-                  <FileUpload 
-                    uploadedFiles={uploadedFiles} 
-                    setUploadedFiles={setUploadedFiles}
-                    setMergedFile={setMergedFile}
+              {mode === 'edit' ? (
+                <>
+                  <Route 
+                    path="/" 
+                    element={
+                      <FileUpload 
+                        uploadedFiles={uploadedFiles} 
+                        setUploadedFiles={setUploadedFiles}
+                        setMergedFile={setMergedFile}
+                      />
+                    } 
                   />
-                } 
-              />
-              <Route 
-                path="/dashboard" 
-                element={
-                  <Dashboard 
-                    mergedFile={mergedFile}
-                    dataset={dataset}
-                    setDataset={setDataset}
+                  <Route 
+                    path="/dashboard" 
+                    element={
+                      <Dashboard 
+                        mergedFile={mergedFile}
+                        dataset={dataset}
+                        setDataset={setDataset}
+                      />
+                    } 
                   />
-                } 
-              />
-              <Route 
-                path="/results" 
-                element={
-                  <AnalysisResults dataset={dataset} />
-                } 
-              />
+                  <Route 
+                    path="/results" 
+                    element={<AnalysisResults dataset={dataset} />} 
+                  />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </>
+              ) : (
+                <>
+                  <Route 
+                    path="/results" 
+                    element={<AnalysisResults dataset={dataset} />} 
+                  />
+                  {/* In view mode, redirect everything to results */}
+                  <Route path="*" element={<Navigate to="/results" replace />} />
+                </>
+              )}
             </Routes>
           </main>
         </div>

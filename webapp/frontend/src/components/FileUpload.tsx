@@ -33,7 +33,7 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
       if (detail.msg) return detail.msg
       try { return JSON.stringify(detail) } catch { /* ignore */ }
     }
-    return err?.message || 'Operation failed'
+  return err?.message || 'Operazione non riuscita'
   }
 
   // Debug
@@ -69,9 +69,9 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
 
   setUploadedFiles(filesFromApi)
   setUploadedFilePaths(filePathsFromApi)
-      setSuccess(`Successfully uploaded ${acceptedFiles.length} file(s)`)
+      setSuccess(`Caricati con successo ${acceptedFiles.length} file`)
     } catch (err: any) {
-      setError(toErrorMessage(err) || 'Upload failed')
+      setError(toErrorMessage(err) || 'Caricamento non riuscito')
     } finally {
       setUploading(false)
     }
@@ -100,11 +100,11 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
       const response = await axios.post(mergeUrl, {
         file_paths: uploadedFilePaths,
       })
-      setMergedFile(response.data.merged_file)
-      setSuccess('Files merged successfully!')
+  setMergedFile(response.data.merged_file)
+  setSuccess('File uniti con successo!')
       navigate('/dashboard')
     } catch (err: any) {
-      setError(toErrorMessage(err) || 'Merge failed')
+  setError(toErrorMessage(err) || 'Unione non riuscita')
     } finally {
       setMerging(false)
     }
@@ -116,19 +116,19 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
         ? `http://localhost:8000/projects/${projectId}/cleanup`
         : 'http://localhost:8000/cleanup'
       await axios.delete(cleanupUrl)
-      setUploadedFiles([])
-      setMergedFile(null)
-      setUploadedFilePaths([])
-      setSuccess('Files cleaned up')
+  setUploadedFiles([])
+  setMergedFile(null)
+  setUploadedFilePaths([])
+  setSuccess('Pulizia completata')
     } catch (err: any) {
-      setError(toErrorMessage(err) || 'Cleanup failed')
+  setError(toErrorMessage(err) || 'Pulizia non riuscita')
     }
   }
 
   return (
     <div className="max-w-4xl mx-auto">
       <div className="card">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload Survey Files</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Carica file del questionario</h2>
         {projectId && (
           <p className="text-sm text-gray-600 mb-4">Progetto attivo: <span className="font-medium">{projectName}</span></p>
         )}
@@ -145,11 +145,11 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
           <input {...getInputProps()} />
           <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
           {isDragActive ? (
-            <p className="text-blue-600">Drop the files here...</p>
+            <p className="text-blue-600">Rilascia i file qui...</p>
           ) : (
             <div>
-              <p className="text-gray-600 mb-2">Drag & drop Excel files here, or click to select</p>
-              <p className="text-sm text-gray-500">Supports .xlsx and .xls files</p>
+              <p className="text-gray-600 mb-2">Trascina qui i file Excel oppure clicca per selezionarli</p>
+              <p className="text-sm text-gray-500">Supporta file .xlsx e .xls</p>
             </div>
           )}
         </div>
@@ -158,7 +158,7 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
           <div className="mt-4 text-center">
             <div className="inline-flex items-center space-x-2 text-blue-600">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-              <span>Uploading files...</span>
+              <span>Caricamento file...</span>
             </div>
           </div>
         )}
@@ -181,7 +181,7 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
         {/* Uploaded Files List */}
         {uploadedFiles && uploadedFiles.length > 0 && (
           <div className="mt-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-3">Uploaded Files</h3>
+      <h3 className="text-lg font-medium text-gray-900 mb-3">File caricati</h3>
             <div className="space-y-2">
               {uploadedFiles.map((file, index) => (
                 <div key={index} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
@@ -197,7 +197,7 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
                 disabled={merging}
                 className="btn-primary disabled:opacity-50"
               >
-                {merging ? 'Merging...' : 'Merge Files'}
+        {merging ? 'Unione in corso...' : 'Unisci file'}
               </button>
               
               <button
@@ -205,7 +205,7 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
                 className="btn-secondary"
               >
                 <FileX className="h-4 w-4 mr-2" />
-                Clean Up
+        Pulisci
               </button>
             </div>
           </div>

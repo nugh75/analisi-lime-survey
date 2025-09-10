@@ -31,22 +31,22 @@ class ErrorBoundary extends Component<Props, State> {
             <div className="text-center">
               <div className="text-red-600 text-6xl mb-4">⚠️</div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                Oops! Something went wrong
+                Oops! Qualcosa è andato storto
               </h2>
               <p className="text-gray-600 mb-4">
-                {this.state.error?.message || 'An unexpected error occurred'}
+                {this.state.error?.message || 'Si è verificato un errore imprevisto'}
               </p>
               <button
                 onClick={() => this.setState({ hasError: false, error: undefined })}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition duration-200"
               >
-                Try Again
+                Riprova
               </button>
               <button
                 onClick={() => window.location.reload()}
                 className="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg transition duration-200"
               >
-                Reload Page
+                Ricarica pagina
               </button>
             </div>
           </div>

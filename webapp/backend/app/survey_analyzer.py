@@ -235,6 +235,23 @@ class SurveyAnalyzer:
         s = re.sub(r'\s*\[[^\]]+\]\s*$', '', s).strip()
         s = s.rstrip(':').strip()
         return s
+
+    def split_title_parts(self, col: str) -> tuple[str, str]:
+        """Split title into main (outside [..]) and sub (inside [...]) parts.
+        - Remove leading numeric prefix like '1.1 '
+        - Main: text with bracketed segments removed, trimmed and without trailing ':'
+        - Sub: first bracketed content if present, else empty string
+        Returns (main, sub)
+        """
+        s = str(col)
+        s_wo_num = re.sub(r'^\d+\.\d+\s*', '', s).strip()
+        # capture bracket contents
+        m = re.search(r'\[([^\]]+)\]', s_wo_num)
+        sub = m.group(1).strip() if m else ''
+        # remove all bracketed parts from main
+        main = re.sub(r'\s*\[[^\]]+\]\s*', ' ', s_wo_num).strip()
+        main = main.rstrip(':').strip()
+        return main, sub
     
     def first_non_na(self, series: pd.Series):
         """Trova il primo valore non nullo"""
@@ -322,116 +339,222 @@ class SurveyAnalyzer:
         """
         Analizza un gruppo di domande e genera grafici
         """
-        if self.data is None:
-            return {"error": "Nessun dataset caricato"}
-        
-        if group_key not in self.question_groups:
-            return {"error": f"Gruppo {group_key} non trovato"}
-        
-        cols = self.question_groups[group_key]
-        results = {
-            "group_key": group_key,
-            "description": self.group_labels.get(group_key, group_key),
-            "chart_type": chart_type,
-            "show_percentages": show_percentages,
-            "include_na": include_na,
-            "subquestions": []
-        }
-        
-        colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57', 
-                 '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#FF9F43',
-                 '#6C5CE7', '#A29BFE', '#FD79A8', '#E17055', '#00B894']
-        
-        for i, col in enumerate(cols, 1):
-            # Prendi i dati della colonna
-            series = self.data[col]
-            original_count = len(series)
+        try:
+            if self.data is None:
+                return {"error": "Nessun dataset caricato"}
             
-            if not include_na:
-                series = series.dropna()
+            if group_key not in self.question_groups:
+                return {"error": f"Gruppo {group_key} non trovato"}
             
-            if len(series) == 0:
+            cols = self.question_groups[group_key]
+            results = {
+                "group_key": group_key,
+                "description": self.group_labels.get(group_key, group_key),
+                "chart_type": chart_type,
+                "show_percentages": show_percentages,
+                "include_na": include_na,
+                "subquestions": []
+            }
+            
+            colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57', 
+                     '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#FF9F43',
+                     '#6C5CE7', '#A29BFE', '#FD79A8', '#E17055', '#00B894']
+            
+            # For small multiples, render subquestion charts as bars
+            effective_chart_type_for_sub = 'bar' if chart_type == 'small_multiples' else chart_type
+
+            # Cache per-subquestion counts and numeric data for potential group-level charts
+            per_sub_counts = []  # list of (column, Counter, total)
+            per_sub_numeric = {}  # column -> list numeric values (for likert only)
+
+            for i, col in enumerate(cols, 1):
+                # Prendi i dati della colonna
+                series = self.data[col]
+                original_count = len(series)
+                
+                if not include_na:
+                    series = series.dropna()
+                
+                if len(series) == 0:
+                    results["subquestions"].append({
+                        "index": i,
+                        "column": col,
+                        "error": "Nessun dato disponibile"
+                    })
+                    continue
+                
+                # Conta i valori
+                counts = Counter(series)
+                total = sum(counts.values())
+                
+                # Statistiche descrittive
+                stats_data = {
+                    "total_responses": total,
+                    "missing_values": original_count - total if not include_na else 0
+                }
+                
+                # Calcola statistiche numeriche per Likert
+                likert_family = self._group_families.get(group_key)
+                if likert_family and likert_family in self.LIKERT_FAMILIES:
+                    order = self.LIKERT_FAMILIES[likert_family]['order']
+                    numeric_values = []
+                    for val in series:
+                        try:
+                            idx = order.index(val)
+                            numeric_values.append(idx + 1)
+                        except ValueError:
+                            continue
+                    if numeric_values:
+                        per_sub_numeric[col] = numeric_values
+                    
+                    if numeric_values:
+                        stats_data.update({
+                            "mean": round(np.mean(numeric_values), 2),
+                            "median": round(np.median(numeric_values), 1),
+                            "std": round(np.std(numeric_values, ddof=1), 2) if len(numeric_values) > 1 else 0
+                        })
+                
+                # Distribuzione dei valori
+                distribution = []
+                for value, count in counts.most_common():
+                    pct = round(100 * count / total, 1) if total > 0 else 0
+                    distribution.append({
+                        "value": str(value),
+                        "count": count,
+                        "percentage": pct
+                    })
+                
+                # Memo for group-level charts
+                per_sub_counts.append((col, counts, total))
+
+                # Genera grafico per sotto-domanda
+                chart_data = self._generate_chart_data(counts, col, effective_chart_type_for_sub, show_percentages, colors, group_key, numeric_data=per_sub_numeric.get(col))
+                
                 results["subquestions"].append({
                     "index": i,
                     "column": col,
-                    "error": "Nessun dato disponibile"
+                    "statistics": stats_data,
+                    "distribution": distribution,
+                    "chart": chart_data
                 })
-                continue
             
-            # Conta i valori
-            counts = Counter(series)
-            total = sum(counts.values())
-            
-            # Statistiche descrittive
-            stats_data = {
-                "total_responses": total,
-                "missing_values": original_count - total if not include_na else 0
-            }
-            
-            # Calcola statistiche numeriche per Likert
-            likert_family = self._group_families.get(group_key)
-            if likert_family and likert_family in self.LIKERT_FAMILIES:
-                order = self.LIKERT_FAMILIES[likert_family]['order']
-                numeric_values = []
-                for val in series:
-                    try:
-                        idx = order.index(val)
-                        numeric_values.append(idx + 1)
-                    except ValueError:
-                        continue
-                
-                if numeric_values:
-                    stats_data.update({
-                        "mean": round(np.mean(numeric_values), 2),
-                        "median": round(np.median(numeric_values), 1),
-                        "std": round(np.std(numeric_values, ddof=1), 2) if len(numeric_values) > 1 else 0
+            # Group-level charts (stacked_100, heatmap_corr, box_multi)
+            if chart_type in ("stacked_100", "heatmap_corr", "box_multi"):
+                group_chart = {"chart_type": chart_type}
+                # Names for subquestions
+                sub_names = [self.wrap_title(c, max_chars=80) for c, _, _ in per_sub_counts]
+                # Category labels
+                all_labels = []
+                likert_family = self._group_families.get(group_key)
+                if chart_type == "stacked_100":
+                    if likert_family and likert_family in self.LIKERT_FAMILIES:
+                        all_labels = [str(l) for l in self.LIKERT_FAMILIES[likert_family]['order']]
+                    else:
+                        label_set = []
+                        seen = set()
+                        for _, cnts, _ in per_sub_counts:
+                            for l in cnts.keys():
+                                s = str(l)
+                                if s not in seen:
+                                    seen.add(s)
+                                    label_set.append(s)
+                        all_labels = label_set
+                    # Build traces per category across subquestions
+                    traces = []
+                    for lab in all_labels:
+                        vals = []
+                        for _, cnts, total in per_sub_counts:
+                            v = cnts.get(lab, 0)
+                            pct = round(100 * v / total, 2) if total > 0 else 0
+                            vals.append(pct)
+                        traces.append({"name": lab, "values": vals})
+                    group_chart.update({
+                        "title": f"Distribuzione 100% - {self.group_labels.get(group_key, group_key)}",
+                        "x": sub_names,
+                        "traces": traces,
+                        "y_label": "Percentuale (%)"
                     })
-            
-            # Distribuzione dei valori
-            distribution = []
-            for value, count in counts.most_common():
-                pct = round(100 * count / total, 1) if total > 0 else 0
-                distribution.append({
-                    "value": str(value),
-                    "count": count,
-                    "percentage": pct
-                })
-            
-            # Genera grafico
-            chart_data = self._generate_chart_data(counts, col, chart_type, show_percentages, colors, group_key)
-            
-            results["subquestions"].append({
-                "index": i,
-                "column": col,
-                "statistics": stats_data,
-                "distribution": distribution,
-                "chart": chart_data
-            })
-        
-        return results
+                elif chart_type == "heatmap_corr":
+                    # Build numeric dataframe if possible
+                    if likert_family and likert_family in self.LIKERT_FAMILIES:
+                        order = self.LIKERT_FAMILIES[likert_family]['order']
+                        # Map each subquestion series to numeric aligned by index
+                        df_map = {}
+                        for c in cols:
+                            s = self.data[c]
+                            vals = []
+                            for v in s:
+                                if pd.isna(v):
+                                    vals.append(np.nan)
+                                else:
+                                    try:
+                                        idx = order.index(v)
+                                        vals.append(idx + 1)
+                                    except ValueError:
+                                        vals.append(np.nan)
+                            df_map[self.wrap_title(c, max_chars=40)] = vals
+                        df = pd.DataFrame(df_map)
+                        if not df.empty:
+                            corr = df.corr().fillna(0)
+                            group_chart.update({
+                                "labels": list(corr.columns),
+                                "matrix": corr.values.tolist(),
+                                "title": f"Correlazioni - {self.group_labels.get(group_key, group_key)}"
+                            })
+                elif chart_type == "box_multi":
+                    # Build multiple box plots across subquestions (Likert only)
+                    if likert_family and likert_family in self.LIKERT_FAMILIES and per_sub_numeric:
+                        traces = []
+                        for idx, c in enumerate(cols):
+                            y = per_sub_numeric.get(c)
+                            if not y:
+                                continue
+                            # Title parts for better legend naming
+                            main, sub = self.split_title_parts(c)
+                            name = self.wrap_title(main, max_chars=60) if main else self.wrap_title(c, max_chars=60)
+                            traces.append({
+                                "name": name,
+                                "y": y,
+                                "marker": {"color": colors[idx % len(colors)]},
+                            })
+                        if traces:
+                            group_chart.update({
+                                "title": f"Box plot multiplo - {self.group_labels.get(group_key, group_key)}",
+                                "traces": traces,
+                                "y_label": "Punteggio Likert"
+                            })
+                results["group_chart"] = group_chart
+
+            return results
+        except Exception as e:
+            return {"error": f"Analyzer error: {str(e)}"}
     
     def _generate_chart_data(self, counts: Counter, col: str, chart_type: str, 
-                           show_percentages: bool, colors: List[str], group_key: str) -> Dict[str, Any]:
+                           show_percentages: bool, colors: List[str], group_key: str, numeric_data: Optional[List[float]] = None) -> Dict[str, Any]:
         """Genera i dati per il grafico"""
         labels = list(counts.keys())
         values = list(counts.values())
         total = sum(values)
         
-        if total == 0:
+        if total == 0 and chart_type not in ("histogram", "gaussian", "box_likert"):
             return {"error": "Nessun dato per il grafico"}
         
         # Calcola valori per i grafici
-        percentages = [round(100 * v / total, 1) for v in values]
-        text_labels = [f"{v} ({p}%)" for v, p in zip(values, percentages)]
+        percentages = [round(100 * v / total, 1) for v in values] if total > 0 else []
+        text_labels = [f"{v} ({p}%)" for v, p in zip(values, percentages)] if total > 0 else []
         
         display_values = percentages if show_percentages else values
         y_label = 'Percentuale (%)' if show_percentages else 'Conteggio'
         
-        wrapped_title = self.wrap_title(col)
+        # Titles: split into main and sub (from square brackets)
+        main_title, sub_title = self.split_title_parts(col)
+        wrapped_title = self.wrap_title(main_title or col)
         
         # Configurazione base del grafico
         chart_config = {
             "title": wrapped_title,
+            "title_main": wrapped_title,
+            "title_sub": sub_title,
             "labels": [str(l) for l in labels],
             "values": display_values,
             "text_labels": text_labels,
@@ -441,6 +564,11 @@ class SurveyAnalyzer:
         }
         
         # Configurazioni specifiche per tipo
+        if chart_type == 'donut':
+            chart_config.update({
+                "hole": 0.5
+            })
+
         if chart_type == 'likert_bar':
             likert_family = self._group_families.get(group_key)
             if likert_family and likert_family in self.LIKERT_FAMILIES:
@@ -457,17 +585,19 @@ class SurveyAnalyzer:
                     "ordered": True
                 })
         
-        elif chart_type in ['histogram', 'gaussian']:
+        elif chart_type in ['histogram', 'gaussian', 'box_likert']:
             likert_family = self._group_families.get(group_key)
             if likert_family and likert_family in self.LIKERT_FAMILIES:
                 order = self.LIKERT_FAMILIES[likert_family]['order']
-                numeric_data = []
-                for val in counts.keys():
-                    try:
-                        idx = order.index(val)
-                        numeric_data.extend([idx + 1] * counts[val])
-                    except ValueError:
-                        continue
+                # If numeric_data not provided, derive from counts (expanded)
+                if numeric_data is None:
+                    numeric_data = []
+                    for val in counts.keys():
+                        try:
+                            idx = order.index(val)
+                            numeric_data.extend([idx + 1] * counts[val])
+                        except ValueError:
+                            continue
                 
                 if numeric_data:
                     chart_config.update({
@@ -477,13 +607,19 @@ class SurveyAnalyzer:
                     })
                     
                     if chart_type == 'gaussian' and len(numeric_data) > 1:
-                        mean_val = np.mean(numeric_data)
-                        std_val = np.std(numeric_data)
+                        mean_val = float(np.mean(numeric_data))
+                        std_val = float(np.std(numeric_data))
                         chart_config.update({
                             "gaussian": {
                                 "mean": mean_val,
                                 "std": std_val
                             }
+                        })
+                    
+                    if chart_type == 'box_likert':
+                        # For box plot, we just need numeric_data; frontend will render box
+                        chart_config.update({
+                            "y_label": "Punteggio Likert"
                         })
         
         return chart_config

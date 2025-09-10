@@ -153,13 +153,13 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
       <div className="max-w-screen-2xl mx-auto">
         <div className="card text-center">
           <Database className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">No Data Available</h2>
-          <p className="text-gray-600 mb-6">Please upload and merge files first</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Nessun dato disponibile</h2>
+          <p className="text-gray-600 mb-6">Carica e unisci i file prima</p>
           <button
             onClick={() => navigate('/')}
             className="btn-primary text-base px-4 py-2"
           >
-            Go to Upload
+            Vai al caricamento
           </button>
         </div>
       </div>
@@ -169,7 +169,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
   return (
     <div className="max-w-screen-2xl mx-auto space-y-6">
       <div className="card">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Data Analysis Dashboard</h2>
+  <h2 className="text-2xl font-bold text-gray-900 mb-2">Dashboard analisi dati</h2>
         {projectId && (
           <p className="text-sm text-gray-600 mb-6">Progetto attivo: <span className="font-medium">{projectName}</span></p>
         )}
@@ -218,26 +218,26 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
           <div className="flex items-center space-x-2">
             <FileText className="h-5 w-5 text-blue-600" />
-            <span className="font-medium text-blue-900">Merged File: {mergedFile}</span>
+            <span className="font-medium text-blue-900">File unito: {mergedFile}</span>
           </div>
         </div>
 
         {/* Headers Analysis */}
         {headers && (
           <div className="mb-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-3">Headers Analysis</h3>
+      <h3 className="text-lg font-medium text-gray-900 mb-3">Analisi intestazioni</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="card">
                 <div className="text-2xl font-bold text-gray-900">{headers?.total_columns ?? 0}</div>
-                <div className="text-sm text-gray-600">Total Columns</div>
+        <div className="text-sm text-gray-600">Colonne totali</div>
               </div>
               <div className="card">
                 <div className="text-2xl font-bold text-gray-900">{headers?.total_rows ?? 0}</div>
-                <div className="text-sm text-gray-600">Total Rows</div>
+        <div className="text-sm text-gray-600">Righe totali</div>
               </div>
               <div className="card">
                 <div className="text-2xl font-bold text-gray-900">{selectedColumns.length}</div>
-                <div className="text-sm text-gray-600">Selected Columns</div>
+        <div className="text-sm text-gray-600">Colonne selezionate</div>
               </div>
             </div>
           </div>
@@ -252,12 +252,12 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
               className="btn-primary disabled:opacity-50 text-base px-4 py-2"
             >
               <Settings className="h-4 w-4 mr-2" />
-              {loading ? 'Analyzing...' : 'Select Useful Columns'}
+              {loading ? 'Analisi in corso...' : 'Seleziona colonne utili'}
             </button>
           ) : (
             <div>
               <h3 className="text-lg font-medium text-gray-900 mb-3">
-                Selected Columns ({usefulColumns.length})
+                Colonne selezionate ({usefulColumns.length})
               </h3>
 
               <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg p-4 mb-4">
@@ -291,7 +291,7 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
                   className="btn-primary disabled:opacity-50 text-base px-4 py-2"
                 >
                   <BarChart3 className="h-4 w-4 mr-2" />
-                  {loading ? 'Loading...' : 'Start Analysis'}
+                  {loading ? 'Caricamento...' : 'Avvia analisi'}
                 </button>
 
                 <button
@@ -300,14 +300,14 @@ export default function Dashboard({ mergedFile = null, dataset = null, setDatase
                   }}
                   className="btn-secondary text-base px-4 py-2"
                 >
-                  Select All
+                  Seleziona tutto
                 </button>
 
                 <button
                   onClick={() => setSelectedColumns([])}
                   className="btn-secondary text-base px-4 py-2"
                 >
-                  Clear All
+                  Deseleziona tutto
                 </button>
               </div>
             </div>
