@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react'
-import { BarChart3, Download, Filter, ChevronLeft, ChevronRight, FileText } from 'lucide-react'
+import { Fragment, useState, useEffect, useMemo } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { BarChart3, Download, Filter, ChevronLeft, ChevronRight, ChevronDown, FileText } from 'lucide-react'
 import Plot from 'react-plotly.js'
 import axios from 'axios'
 import { API_BASE_URL } from '../services/api'
 import { useProject } from '../context/ProjectContext'
 import { useMode } from '../context/ModeContext'
+import {
+  extractQuestionNumber,
+  getSubquestionTexts,
+  sanitizeQuestionText,
+  summarizeSubquestionResponses,
+  type ResponseCategorySummary,
+} from '../utils/questions'
 import type { Data, Layout } from 'plotly.js'
 import type {
   AnalyzeQuestionResponse,
@@ -21,6 +29,24 @@ const PlotlyColors = [
   '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52',
   '#2E86AB', '#A23B72', '#0B8457', '#EE6C4D', '#3D5A80',
 ]
+
+const RESPONSE_TYPE_LABEL: Record<ResponseCategorySummary['type'], string> = {
+  yes_no: 'Sì / No',
+  yes_partial: 'Sì / In parte',
+  likert: 'Scala Likert',
+  other: '',
+}
+
+const canUseHistory = (() => {
+  if (typeof window === 'undefined') return true
+  try {
+    const history = window.history
+    return !!history && typeof history.replaceState === 'function'
+  } catch (err) {
+    console.warn('History API not available, skipping URL sync.', err)
+    return false
+  }
+})()
 
 interface AnalysisResultsProps {
   dataset: DatasetSummary | null
@@ -40,6 +66,130 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
   const { projectId, projectName, setProject } = useProject()
   const { mode } = useMode()
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [historyEnabled, setHistoryEnabled] = useState<boolean>(canUseHistory)
+  const [expandedSubRows, setExpandedSubRows] = useState<Set<number>>(new Set())
+
+  const baseQuestionText = useMemo(() => {
+    if (analysisResult?.subquestions?.length) {
+      const first = getSubquestionTexts(analysisResult.subquestions[0])
+      if (first.base) return first.base
+    }
+    if (selectedGroup && groupLabels[selectedGroup]) {
+      return sanitizeQuestionText(groupLabels[selectedGroup])
+    }
+    return ''
+  }, [analysisResult, groupLabels, selectedGroup])
+
+  const selectedSubTexts = useMemo(() => {
+    if (!analysisResult?.subquestions?.length) return { base: '', detail: '', combined: '' }
+    const safeIdx = Math.min(selectedSubIdx, analysisResult.subquestions.length - 1)
+    return getSubquestionTexts(analysisResult.subquestions[safeIdx])
+  }, [analysisResult, selectedSubIdx])
+
+  const responseSummaries = useMemo(() => {
+    if (!analysisResult?.subquestions?.length) return []
+    return analysisResult.subquestions.map((sq) => summarizeSubquestionResponses(sq))
+  }, [analysisResult])
+
+  const selectedResponseSummary = useMemo<ResponseCategorySummary | null>(() => {
+    if (!analysisResult?.subquestions?.length) return null
+    const safeIdx = Math.min(selectedSubIdx, analysisResult.subquestions.length - 1)
+    return responseSummaries[safeIdx] ?? summarizeSubquestionResponses(analysisResult.subquestions[safeIdx])
+  }, [analysisResult, responseSummaries, selectedSubIdx])
+
+  const selectedSubYesCount = selectedResponseSummary?.hasYes ? selectedResponseSummary.yesCount : null
+  const selectedSubPartialCount = selectedResponseSummary?.hasPartial ? selectedResponseSummary.partialCount : null
+  const selectedSubNoCount = selectedResponseSummary?.hasNo ? selectedResponseSummary.noCount : null
+
+  const hasYesColumn = useMemo(
+    () => responseSummaries.some((summary) => summary.hasYes),
+    [responseSummaries],
+  )
+  const hasPartialColumn = useMemo(
+    () => responseSummaries.some((summary) => summary.hasPartial),
+    [responseSummaries],
+  )
+  const hasNoColumn = useMemo(
+    () => responseSummaries.some((summary) => summary.hasNo),
+    [responseSummaries],
+  )
+
+  const showInlineStatsColumns = useMemo(() => {
+    if (!analysisResult?.subquestions?.length) return false
+    return analysisResult.subquestions.some((sq) => {
+      const hasDistribution = Array.isArray(sq.distribution) && sq.distribution.length > 0
+      const stats = sq.statistics
+      const hasStatsValues = Boolean(
+        stats && (
+          typeof stats.mean === 'number' ||
+          typeof stats.median === 'number' ||
+          typeof stats.std === 'number'
+        ),
+      )
+      return !hasDistribution && hasStatsValues
+    })
+  }, [analysisResult])
+
+  const detailColSpan = useMemo(() => {
+    const baseColumns = 3 // #, Dettagli, Domanda
+    const yesColumn = hasYesColumn ? 1 : 0
+    const partialColumn = hasPartialColumn ? 1 : 0
+    const noColumn = hasNoColumn ? 1 : 0
+    const responseColumns = 2 // Conteggio, Mancanti
+    const statsColumns = showInlineStatsColumns ? 3 : 0
+    return baseColumns + yesColumn + partialColumn + noColumn + responseColumns + statsColumns
+  }, [hasNoColumn, hasPartialColumn, hasYesColumn, showInlineStatsColumns])
+
+  const groupSummary = useMemo(() => {
+    if (!analysisResult?.subquestions?.length) return null
+
+    let totalResponsesSum = 0
+    let missingSum = 0
+    let distributionCount = 0
+
+    analysisResult.subquestions.forEach((sq) => {
+      if (typeof sq.statistics?.total_responses === 'number' && Number.isFinite(sq.statistics.total_responses)) {
+        totalResponsesSum += sq.statistics.total_responses
+      }
+      if (typeof sq.statistics?.missing_values === 'number' && Number.isFinite(sq.statistics.missing_values)) {
+        missingSum += sq.statistics.missing_values
+      }
+      if (Array.isArray(sq.distribution) && sq.distribution.length > 0) {
+        distributionCount += 1
+      }
+    })
+
+    const totalRows = analysisResult.subquestions.length
+    const denominator = totalResponsesSum + missingSum
+    const missingRate = denominator > 0 ? (missingSum / denominator) * 100 : null
+
+    return {
+      totalRows,
+      totalResponsesSum,
+      missingSum,
+      distributionCount,
+      onlyStatsCount: totalRows - distributionCount,
+      missingRate,
+    }
+  }, [analysisResult])
+
+  useEffect(() => {
+    setExpandedSubRows(new Set())
+  }, [analysisResult, selectedGroup])
+
+  const toggleSubDistribution = (index: number) => {
+    setExpandedSubRows(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) {
+        next.delete(index)
+      } else {
+        next.add(index)
+      }
+      return next
+    })
+  }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -103,9 +253,6 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
       setQuestionGroups(response.data.groups)
       setGroupLabels(response.data.labels || {})
       setLikertFamilies(response.data.likert_families || {})
-      if (response.data.groups.length > 0) {
-        setSelectedGroup(response.data.groups[0])
-      }
     } catch (err) {
       // Se è un progetto e il dataset non è caricato, prova auto-load con merged_file
       if (projectId) {
@@ -121,9 +268,6 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
             setQuestionGroups(response2.data.groups)
             setGroupLabels(response2.data.labels || {})
             setLikertFamilies(response2.data.likert_families || {})
-            if (response2.data.groups.length > 0) {
-              setSelectedGroup(response2.data.groups[0])
-            }
             return
           }
         } catch (e) {
@@ -163,14 +307,72 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
     }
   }
 
-  const analyzeQuestion = async () => {
-    if (!selectedGroup) return
+  // Align selection with question list and URL parameter (?group=)
+  useEffect(() => {
+    if (!questionGroups.length) {
+      setSelectedGroup(prev => (prev ? '' : prev))
+      return
+    }
+
+    if (!historyEnabled) {
+      setSelectedGroup(prev => {
+        if (prev && questionGroups.includes(prev)) {
+          return prev
+        }
+        return questionGroups[0]
+      })
+      return
+    }
+
+    const params = new URLSearchParams(location.search)
+    const requested = params.get('group')
+
+    if (requested && questionGroups.includes(requested)) {
+      setSelectedGroup(prev => (prev === requested ? prev : requested))
+      return
+    }
+
+    setSelectedGroup(prev => {
+      if (!prev || !questionGroups.includes(prev)) {
+        return questionGroups[0]
+      }
+      return prev
+    })
+  }, [questionGroups, location.search, historyEnabled])
+
+  // Keep URL in sync with current selection for deep-linking and navigation from list
+  useEffect(() => {
+    if (!questionGroups.length || !historyEnabled) return
+
+    const params = new URLSearchParams(location.search)
+
+    if (!selectedGroup) {
+      if (!params.has('group')) return
+      params.delete('group')
+    } else if (params.get('group') === selectedGroup) {
+      return
+    } else {
+      params.set('group', selectedGroup)
+    }
+
+    const search = params.toString()
+    try {
+      navigate({ pathname: location.pathname, search: search ? `?${search}` : '' }, { replace: true })
+    } catch (err) {
+      console.warn('Failed to sync URL, disabling history updates.', err)
+      setHistoryEnabled(false)
+    }
+  }, [selectedGroup, location.pathname, location.search, navigate, questionGroups, historyEnabled])
+
+  const analyzeQuestion = async (groupOverride?: string) => {
+    const groupKey = groupOverride ?? selectedGroup
+    if (!groupKey) return
 
     setLoading(true)
     try {
       // Backend expects form fields: group_key, chart_type, show_percentages, include_na
       const form = new FormData()
-      form.append('group_key', selectedGroup)
+      form.append('group_key', groupKey)
       form.append('chart_type', chartType)
       form.append('show_percentages', showPercentages ? 'true' : 'false')
       form.append('include_na', 'false')
@@ -190,13 +392,18 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
     }
   }
 
-  const sanitizeText = (s: string | undefined | null) => {
-    if (!s) return ''
-    return String(s)
-      .replace(/<br\s*\/?>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+  const formatGroupOption = (group: string) => {
+    const numberFromKey = extractQuestionNumber(group)
+    const numberFromLabel = extractQuestionNumber(groupLabels[group])
+    const label = sanitizeQuestionText(groupLabels[group] || group)
+    const numberToUse = numberFromKey || numberFromLabel
+
+    if (numberToUse && label) {
+      return `Domanda ${numberToUse} – ${label}`
+    }
+    if (label) return label
+    if (numberToUse) return `Domanda ${numberToUse}`
+    return group
   }
 
   const downloadChart = () => {
@@ -214,22 +421,26 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
     document.body.removeChild(element)
   }
 
-  const goPrevGroup = async () => {
+  const goPrevGroup = () => {
     if (!questionGroups.length || !selectedGroup) return
     const idx = questionGroups.findIndex(g => g === selectedGroup)
     if (idx <= 0) return
     const next = questionGroups[idx - 1]
     setSelectedGroup(next)
-    await analyzeQuestion()
+    if (mode !== 'view') {
+      analyzeQuestion(next)
+    }
   }
 
-  const goNextGroup = async () => {
+  const goNextGroup = () => {
     if (!questionGroups.length || !selectedGroup) return
     const idx = questionGroups.findIndex(g => g === selectedGroup)
     if (idx === -1 || idx >= questionGroups.length - 1) return
     const next = questionGroups[idx + 1]
     setSelectedGroup(next)
-    await analyzeQuestion()
+    if (mode !== 'view') {
+      analyzeQuestion(next)
+    }
   }
 
   const goPrevSub = () => {
@@ -345,19 +556,65 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
             </button>
           </div>
         </div>
-        {selectedGroup && (
-          <p className="text-gray-700 mb-4 text-lg">
-      <span className="font-medium">Gruppo:</span> {selectedGroup}
-            {groupLabels[selectedGroup] && (
-              <>
-                <span className="mx-2 text-gray-400">•</span>
-        <span className="font-medium">Titolo:</span> {sanitizeText(groupLabels[selectedGroup])}
-              </>
+        {(selectedGroup || baseQuestionText || selectedSubTexts.detail) && (
+          <div className="text-gray-700 mb-4 text-lg space-y-1">
+            {selectedGroup && (
+              <div>
+                <span className="font-medium">Gruppo:</span> {selectedGroup}
+              </div>
             )}
-          </p>
+            {baseQuestionText && (
+              <div className="text-base">
+                <span className="font-medium">Domanda:</span> {baseQuestionText}
+              </div>
+            )}
+            {selectedResponseSummary && selectedResponseSummary.type !== 'other' && (
+              <div className="text-sm text-gray-600">
+                <span className="font-medium">Tipologia risposte:</span> {RESPONSE_TYPE_LABEL[selectedResponseSummary.type]}
+              </div>
+            )}
+            {selectedSubTexts.detail && (
+              <div className="text-base">
+                <span className="font-medium">Opzione selezionata:</span> {selectedSubTexts.detail}
+                {selectedSubYesCount !== null && (
+                  <>
+                    <span className="mx-2 text-gray-400">•</span>
+                    <span className="font-medium">
+                      {selectedResponseSummary?.yesLabel
+                        ? `Risposte "${selectedResponseSummary.yesLabel}"`
+                        : 'Risposte "Sì"'}
+                    </span>{' '}
+                    {selectedSubYesCount}
+                  </>
+                )}
+                {selectedSubPartialCount !== null && (
+                  <>
+                    <span className="mx-2 text-gray-400">•</span>
+                    <span className="font-medium">
+                      {selectedResponseSummary?.partialLabel
+                        ? `Risposte "${selectedResponseSummary.partialLabel}"`
+                        : 'Risposte "In parte"'}
+                    </span>{' '}
+                    {selectedSubPartialCount}
+                  </>
+                )}
+                {selectedSubNoCount !== null && (
+                  <>
+                    <span className="mx-2 text-gray-400">•</span>
+                    <span className="font-medium">
+                      {selectedResponseSummary?.noLabel
+                        ? `Risposte "${selectedResponseSummary.noLabel}"`
+                        : 'Risposte "No"'}
+                    </span>{' '}
+                    {selectedSubNoCount}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         )}
-        
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div>
             <label className="block text-base font-medium text-gray-700 mb-2">
               Gruppo di domande
@@ -367,9 +624,13 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
               onChange={(e) => setSelectedGroup(e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base py-2"
             >
-              {questionGroups.map((group, index) => (
-                <option key={index} value={group}>
-                  {group}
+              {questionGroups.map((group) => (
+                <option
+                  key={group}
+                  value={group}
+                  title={sanitizeQuestionText(groupLabels[group] || group)}
+                >
+                  {formatGroupOption(group)}
                 </option>
               ))}
             </select>
@@ -410,33 +671,223 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
           {analysisResult?.subquestions && analysisResult.subquestions.length > 0 && (
             <div className="mb-6">
               <h4 className="text-xl font-medium text-gray-900 mb-3">Report numerico</h4>
+              {groupSummary && (
+                <div className="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="text-sm text-gray-500">Sottodomande</div>
+                    <div className="mt-1 text-2xl font-semibold text-gray-900">{groupSummary.totalRows}</div>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="text-sm text-gray-500">Con distribuzione</div>
+                    <div className="mt-1 text-2xl font-semibold text-gray-900">{groupSummary.distributionCount}</div>
+                    <div className="text-xs text-gray-500">Solo statistiche: {groupSummary.onlyStatsCount}</div>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="text-sm text-gray-500">Somma risposte valide</div>
+                    <div className="mt-1 text-2xl font-semibold text-gray-900">{groupSummary.totalResponsesSum}</div>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="text-sm text-gray-500">Somma mancanti</div>
+                    <div className="mt-1 text-2xl font-semibold text-gray-900">{groupSummary.missingSum}</div>
+                    {typeof groupSummary.missingRate === 'number' && (
+                      <div className="text-xs text-gray-500">{groupSummary.missingRate.toFixed(1)}% sul totale</div>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="min-w-full text-base">
                   <thead>
                     <tr className="text-left text-gray-600">
                       <th className="p-2">#</th>
+                      <th className="p-2 w-12">Dettagli</th>
                       <th className="p-2">Domanda</th>
+                      {hasYesColumn && <th className="p-2">Risposte Sì</th>}
+                      {hasPartialColumn && <th className="p-2">Risposte In parte</th>}
+                      {hasNoColumn && <th className="p-2">Risposte No</th>}
                       <th className="p-2">Conteggio</th>
                       <th className="p-2">Mancanti</th>
-                      <th className="p-2">Media</th>
-                      <th className="p-2">Mediana</th>
-                      <th className="p-2">Dev. Std</th>
+                      {showInlineStatsColumns && (
+                        <>
+                          <th className="p-2">Media</th>
+                          <th className="p-2">Mediana</th>
+                          <th className="p-2">Dev. Std</th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {analysisResult.subquestions.map((sq, idx: number) => (
-                      <tr key={idx} className="border-t border-gray-200">
-                        <td className="p-2 align-top">{sq.index}</td>
-                        <td className="p-2 align-top">
-                          <div className="font-medium text-gray-900">{sanitizeText(sq.chart?.title) || sq.column}</div>
-                        </td>
-                        <td className="p-2 align-top">{sq.statistics?.total_responses ?? 'N/D'}</td>
-                        <td className="p-2 align-top">{sq.statistics?.missing_values ?? 0}</td>
-                        <td className="p-2 align-top">{typeof sq.statistics?.mean === 'number' ? sq.statistics.mean.toFixed(2) : 'N/D'}</td>
-                        <td className="p-2 align-top">{typeof sq.statistics?.median === 'number' ? sq.statistics.median.toFixed(2) : 'N/D'}</td>
-                        <td className="p-2 align-top">{typeof sq.statistics?.std === 'number' ? sq.statistics.std.toFixed(2) : (sq.statistics?.std ?? 'N/D')}</td>
-                      </tr>
-                    ))}
+                    {analysisResult.subquestions.map((sq, idx: number) => {
+                      const texts = getSubquestionTexts(sq)
+                      const hasDistribution = Array.isArray(sq.distribution) && sq.distribution.length > 0
+                      const summary = responseSummaries[idx] ?? summarizeSubquestionResponses(sq)
+                      const yesCount = summary?.hasYes ? summary.yesCount : null
+                      const partialCount = summary?.hasPartial ? summary.partialCount : null
+                      const yesLabel = summary?.yesLabel
+                      const partialLabel = summary?.partialLabel
+                      const noCount = summary?.hasNo ? summary.noCount : null
+                      const noLabel = summary?.noLabel
+                      const stats = sq.statistics
+                      const meanValue = typeof stats?.mean === 'number' ? stats.mean : null
+                      const medianValue = typeof stats?.median === 'number' ? stats.median : null
+                      const stdValue = typeof stats?.std === 'number' ? stats.std : null
+                      const showStatsInline = showInlineStatsColumns && !hasDistribution
+                      const hasSummaryDetails = Boolean(summary && (summary.hasYes || summary.hasPartial || summary.hasNo))
+                      const canExpand = hasDistribution || Boolean(stats) || hasSummaryDetails
+                      const isExpanded = expandedSubRows.has(idx)
+                      const distribution = hasDistribution ? sq.distribution ?? [] : []
+                      const expandLabel = hasDistribution
+                        ? 'dettagli distribuzione'
+                        : hasSummaryDetails
+                          ? 'dettagli risposta'
+                          : 'dettagli statistici'
+
+                      return (
+                        <Fragment key={idx}>
+                          <tr className="border-t border-gray-200">
+                            <td className="p-2 align-top">{sq.index}</td>
+                            <td className="p-2 align-top">
+                              {canExpand ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSubDistribution(idx)}
+                                  className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                  aria-expanded={isExpanded}
+                                  aria-label={isExpanded ? `Nascondi ${expandLabel}` : `Mostra ${expandLabel}`}
+                                >
+                                  <ChevronDown
+                                    className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
+                                  />
+                                </button>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                            <td className="p-2 align-top">
+                              <div className="font-medium text-gray-900">{texts.detail || texts.combined || sq.column}</div>
+                            </td>
+                            {hasYesColumn && (
+                              <td className="p-2 align-top">
+                                {summary?.hasYes ? (yesCount !== null ? yesCount : 'N/D') : ''}
+                              </td>
+                            )}
+                            {hasPartialColumn && (
+                              <td className="p-2 align-top">
+                                {summary?.hasPartial ? (partialCount !== null ? partialCount : 'N/D') : ''}
+                              </td>
+                            )}
+                            {hasNoColumn && (
+                              <td className="p-2 align-top">
+                                {summary?.hasNo ? (noCount !== null ? noCount : 'N/D') : ''}
+                              </td>
+                            )}
+                            <td className="p-2 align-top">{typeof stats?.total_responses === 'number' ? stats.total_responses : 'N/D'}</td>
+                            <td className="p-2 align-top">{typeof stats?.missing_values === 'number' ? stats.missing_values : 'N/D'}</td>
+                            {showInlineStatsColumns && (
+                              <>
+                                <td className="p-2 align-top">{showStatsInline ? (meanValue !== null ? meanValue.toFixed(2) : 'N/D') : ''}</td>
+                                <td className="p-2 align-top">{showStatsInline ? (medianValue !== null ? medianValue.toFixed(2) : 'N/D') : ''}</td>
+                                <td className="p-2 align-top">{showStatsInline ? (stdValue !== null ? stdValue.toFixed(2) : 'N/D') : ''}</td>
+                              </>
+                            )}
+                          </tr>
+                          {isExpanded && canExpand && (
+                            <tr className="border-t border-gray-100 bg-gray-50">
+                              <td className="p-0" colSpan={detailColSpan}>
+                                <div className="px-4 py-4">
+                                  <div
+                                    className={`grid grid-cols-1 gap-4 ${hasDistribution ? 'lg:grid-cols-2' : ''}`}
+                                  >
+                                    {hasDistribution && (
+                                      <div>
+                                        <div className="text-sm font-medium text-gray-700 mb-2">Distribuzione risposte</div>
+                                        <div className="overflow-x-auto">
+                                          <table className="min-w-full text-sm">
+                                            <thead>
+                                              <tr className="text-left text-gray-600">
+                                                <th className="p-2">Valore</th>
+                                                <th className="p-2">Conteggio</th>
+                                                <th className="p-2">Percentuale</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {distribution.map((row, distIdx) => (
+                                                <tr key={`${idx}-${distIdx}`} className="border-t border-gray-200">
+                                                  <td className="p-2 align-top">{sanitizeQuestionText(row.value)}</td>
+                                                  <td className="p-2 align-top">{row.count}</td>
+                                                  <td className="p-2 align-top">{typeof row.percentage === 'number' ? `${row.percentage.toFixed(1)}%` : `${row.percentage}%`}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {(stats || summary?.hasYes || summary?.hasPartial || summary?.hasNo) && (
+                                      <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                                        <div className="text-sm font-medium text-gray-700">Sintesi</div>
+                                        {summary && summary.type !== 'other' && (
+                                          <div className="mt-1 text-xs uppercase tracking-wide text-gray-500">
+                                            Tipologia:{' '}
+                                            <span className="font-medium normal-case text-gray-900">
+                                              {RESPONSE_TYPE_LABEL[summary.type]}
+                                            </span>
+                                          </div>
+                                        )}
+                                        <dl className="mt-3 space-y-2 text-sm text-gray-600">
+                                          <div className="flex items-center justify-between">
+                                            <dt>Risposte valide</dt>
+                                            <dd className="font-medium text-gray-900">{typeof stats?.total_responses === 'number' ? stats.total_responses : 'N/D'}</dd>
+                                          </div>
+                                          <div className="flex items-center justify-between">
+                                            <dt>Mancanti</dt>
+                                            <dd className="font-medium text-gray-900">{typeof stats?.missing_values === 'number' ? stats.missing_values : 'N/D'}</dd>
+                                          </div>
+                                          {summary?.hasYes && (
+                                            <div className="flex items-center justify-between">
+                                              <dt>{yesLabel ? `Risposte "${yesLabel}"` : 'Risposte "Sì"'}</dt>
+                                              <dd className="font-medium text-gray-900">{yesCount !== null ? yesCount : 'N/D'}</dd>
+                                            </div>
+                                          )}
+                                          {summary?.hasPartial && (
+                                            <div className="flex items-center justify-between">
+                                              <dt>{partialLabel ? `Risposte "${partialLabel}"` : 'Risposte "In parte"'}</dt>
+                                              <dd className="font-medium text-gray-900">{partialCount !== null ? partialCount : 'N/D'}</dd>
+                                            </div>
+                                          )}
+                                          {summary?.hasNo && (
+                                            <div className="flex items-center justify-between">
+                                              <dt>{noLabel ? `Risposte "${noLabel}"` : 'Risposte "No"'}</dt>
+                                              <dd className="font-medium text-gray-900">{noCount !== null ? noCount : 'N/D'}</dd>
+                                            </div>
+                                          )}
+                                        </dl>
+                                        {(meanValue !== null || medianValue !== null || stdValue !== null) && (
+                                          <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+                                            <div>
+                                              <div className="text-xs uppercase tracking-wide text-gray-500">Media</div>
+                                              <div className="text-base font-semibold text-gray-900">{meanValue !== null ? meanValue.toFixed(2) : 'N/D'}</div>
+                                            </div>
+                                            <div>
+                                              <div className="text-xs uppercase tracking-wide text-gray-500">Mediana</div>
+                                              <div className="text-base font-semibold text-gray-900">{medianValue !== null ? medianValue.toFixed(2) : 'N/D'}</div>
+                                            </div>
+                                            <div>
+                                              <div className="text-xs uppercase tracking-wide text-gray-500">Dev. Std</div>
+                                              <div className="text-base font-semibold text-gray-900">{stdValue !== null ? stdValue.toFixed(2) : 'N/D'}</div>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -489,7 +940,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                 Mostra percentuali
               </label>
               <button
-                onClick={analyzeQuestion}
+                onClick={() => analyzeQuestion()}
                 disabled={loading || !selectedGroup}
                 className="btn-primary disabled:opacity-50 text-base px-4 py-2"
               >
@@ -620,7 +1071,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                 const colors = chart.colors || []
                 return (
                   <div key={idx} className="bg-white rounded-lg border border-gray-200 p-3">
-                    <div className="mb-2 text-sm font-medium text-gray-900">{sanitizeText(chart.title_main || chart.title)}</div>
+                    <div className="mb-2 text-sm font-medium text-gray-900">{sanitizeQuestionText(chart.title_main || chart.title)}</div>
                     <Plot
                       data={[{
                         type: 'bar',
@@ -639,7 +1090,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                       style={{ width: '100%', height: '360px' }}
                     />
                     {chart.title_sub && (
-                      <div className="mt-2 text-xs text-gray-600">{sanitizeText(chart.title_sub)}</div>
+                      <div className="mt-2 text-xs text-gray-600">{sanitizeQuestionText(chart.title_sub)}</div>
                     )}
                   </div>
                 )
@@ -661,11 +1112,26 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                     onChange={(e) => setSelectedSubIdx(parseInt(e.target.value, 10))}
                     className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base py-2"
                   >
-          {analysisResult.subquestions.map((sq, idx: number) => (
-                      <option key={idx} value={idx}>
-            {sanitizeText(sq.chart?.title) || sq.column}
-                      </option>
-                    ))}
+                    {analysisResult.subquestions.map((sq, idx: number) => {
+                      const texts = getSubquestionTexts(sq)
+                      const summary = summarizeSubquestionResponses(sq)
+                      const label = texts.detail || texts.combined || sq.column
+                      const badgeParts: string[] = []
+                      if (summary.hasYes && summary.yesCount !== null) {
+                        badgeParts.push(`${summary.yesLabel || 'Sì'}: ${summary.yesCount}`)
+                      }
+                      if (summary.hasPartial && summary.partialCount !== null) {
+                        badgeParts.push(`${summary.partialLabel || 'In parte'}: ${summary.partialCount}`)
+                      }
+                      if (summary.hasNo && summary.noCount !== null) {
+                        badgeParts.push(`${summary.noLabel || 'No'}: ${summary.noCount}`)
+                      }
+                      return (
+                        <option key={idx} value={idx} title={texts.combined || sq.column}>
+                          {badgeParts.length > 0 ? `${label} (${badgeParts.join(' • ')})` : label}
+                        </option>
+                      )
+                    })}
                   </select>
                   <button onClick={goNextSub} className="btn-secondary px-3 py-2" disabled={selectedSubIdx >= analysisResult.subquestions.length - 1}>
                     <ChevronRight className="h-5 w-5" />
@@ -789,7 +1255,7 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
                 const chart = analysisResult.subquestions[selectedSubIdx].chart
                 const sub = chart?.title_sub
                 if (!sub) return null
-                return <div className="mt-2 text-sm text-gray-600">{sanitizeText(sub)}</div>
+                return <div className="mt-2 text-sm text-gray-600">{sanitizeQuestionText(sub)}</div>
               })()}
             </div>
           )}

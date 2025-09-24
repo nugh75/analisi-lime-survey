@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { BarChart3, Upload, FileText, Plus, Eye, Pencil } from 'lucide-react'
+import { BarChart3, Upload, FileText, List, Plus, Eye, Pencil } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { API_BASE_URL } from '../services/api'
@@ -158,7 +158,19 @@ export default function Navigation() {
                 <span>Dashboard</span>
               </Link>
             )}
-            
+
+            <Link
+              to="/questions"
+              className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition ${
+                isActive('/questions') 
+                  ? 'bg-blue-100 text-blue-700' 
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <List className="h-4 w-4" />
+              <span>Domande</span>
+            </Link>
+
             <Link
               to="/results"
               className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition ${

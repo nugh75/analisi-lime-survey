@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import FileUpload from './components/FileUpload'
 import Dashboard from './components/Dashboard'
 import AnalysisResults from './components/AnalysisResults'
+import QuestionExplorer from './components/QuestionExplorer'
 import Navigation from './components/Navigation'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useProject } from './context/ProjectContext'
@@ -113,6 +114,10 @@ function App() {
                     } 
                   />
                   <Route 
+                    path="/questions"
+                    element={<QuestionExplorer dataset={dataset} />} 
+                  />
+                  <Route 
                     path="/results" 
                     element={<AnalysisResults dataset={dataset} />} 
                   />
@@ -120,6 +125,10 @@ function App() {
                 </>
               ) : (
                 <>
+                  <Route 
+                    path="/questions"
+                    element={<QuestionExplorer dataset={dataset} />} 
+                  />
                   <Route 
                     path="/results" 
                     element={<AnalysisResults dataset={dataset} />} 
