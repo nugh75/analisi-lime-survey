@@ -13,7 +13,8 @@ const ModeContext = createContext<ModeContextType | undefined>(undefined)
 export function ModeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<AppMode>(() => {
     const saved = localStorage.getItem('appMode') as AppMode | null
-    return saved || 'edit'
+    if (saved === 'edit') return 'view'
+    return saved || 'view'
   })
 
   const update = (m: AppMode) => {

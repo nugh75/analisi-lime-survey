@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { BarChart3, Download, Filter, ChevronLeft, ChevronRight, ChevronDown, FileText } from 'lucide-react'
+import { BarChart3, Download, Filter, ChevronLeft, ChevronRight, ChevronDown, FileText, Loader2 } from 'lucide-react'
 import Plot from 'react-plotly.js'
 import axios from 'axios'
 import { API_BASE_URL } from '../services/api'
@@ -50,9 +50,10 @@ const canUseHistory = (() => {
 
 interface AnalysisResultsProps {
   dataset: DatasetSummary | null
+  isLoading?: boolean
 }
 
-export default function AnalysisResults({ dataset = null }: AnalysisResultsProps) {
+export default function AnalysisResults({ dataset = null, isLoading = false }: AnalysisResultsProps) {
   const [questionGroups, setQuestionGroups] = useState<string[]>([])
   const [selectedGroup, setSelectedGroup] = useState<string>('')
   const [chartType, setChartType] = useState<string>('bar')
@@ -478,19 +479,27 @@ export default function AnalysisResults({ dataset = null }: AnalysisResultsProps
     URL.revokeObjectURL(url)
   }
 
+  if (isLoading) {
+    return (
+      <div className="max-w-7xl mx-auto">
+        <div className="card text-center">
+          <Loader2 className="mx-auto h-16 w-16 text-blue-500 animate-spin mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Caricamento dati in corso…</h2>
+          <p className="text-gray-600">Stiamo recuperando il dataset e i risultati dell'indagine selezionata.</p>
+        </div>
+      </div>
+    )
+  }
+
   if (!dataset) {
     return (
       <div className="max-w-7xl mx-auto">
         <div className="card text-center">
           <BarChart3 className="mx-auto h-16 w-16 text-gray-400 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Nessun dataset caricato</h2>
-          {mode === 'view' ? (
-            <p className="text-gray-600">
-              In modalità Visualizza si può solo consultare i risultati. Seleziona un progetto con un file unito (merged) oppure passa a "Modifica" per preparare i dati.
-            </p>
-          ) : (
-            <p className="text-gray-600">Carica e prepara un dataset dalla Dashboard per vedere i risultati.</p>
-          )}
+          <p className="text-gray-600">
+            Seleziona un progetto che abbia già un dataset preparato dalla Dashboard oppure genera il dataset caricando e unendo i file dell'indagine.
+          </p>
         </div>
       </div>
     )

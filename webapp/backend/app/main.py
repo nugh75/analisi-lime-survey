@@ -37,6 +37,9 @@ class Project:
         self.files = []  # basenames only
         self.merged_file = None  # basename
         self.created_at = datetime.now().isoformat(timespec="seconds")
+        self.last_updated_at: Optional[str] = None
+        self.last_loaded_at: Optional[str] = None
+        self.records_count: Optional[int] = None
         self.analyzer = SurveyAnalyzer()
         self._load_or_init_metadata()
 
@@ -49,10 +52,20 @@ class Project:
                 self.files = data.get("files", [])
                 self.merged_file = data.get("merged_file")
                 self.created_at = data.get("created_at", self.created_at)
+                self.last_updated_at = data.get("last_updated_at") or data.get("updated_at")
+                self.last_loaded_at = data.get("last_loaded_at")
+                self.records_count = data.get("records_count")
             except Exception:
                 self._save_metadata()
         else:
             self._save_metadata()
+        if not self.last_updated_at:
+            self.last_updated_at = self.created_at
+        if self.records_count is not None:
+            try:
+                self.records_count = int(self.records_count)
+            except (TypeError, ValueError):
+                self.records_count = None
 
     def _save_metadata(self):
         data = {
@@ -61,45 +74,88 @@ class Project:
             "files": self.files,
             "merged_file": self.merged_file,
             "created_at": self.created_at,
+            "last_updated_at": self.last_updated_at,
+            "last_loaded_at": self.last_loaded_at,
+            "records_count": self.records_count,
         }
         with open(self.metadata_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+    def update_records(self, count: Optional[int], *, mark_loaded: bool = False):
+        if count is not None:
+            try:
+                self.records_count = int(count)
+            except (TypeError, ValueError):
+                self.records_count = None
+        timestamp = datetime.now().isoformat(timespec="seconds")
+        self.last_updated_at = timestamp
+        if mark_loaded:
+            self.last_loaded_at = timestamp
+        self._save_metadata()
+
+    def compute_records_from_merged(self, persist: bool = False) -> Optional[int]:
+        """Return respondent count by inspecting the merged dataset (excludes header)."""
+        if not self.merged_file:
+            return self.records_count
+        merged_path = os.path.join(self.upload_dir, self.merged_file)
+        if not os.path.isfile(merged_path):
+            return self.records_count
+
+        try:
+            df = pd.read_excel(merged_path)
+            count = max(len(df.index), 0)
+        except Exception:
+            count = None
+
+        if count is None:
+            return self.records_count
+
+        if persist and count != self.records_count:
+            original_last_updated = self.last_updated_at
+            original_last_loaded = self.last_loaded_at
+            self.records_count = count
+            self._save_metadata()
+            # Restore timestamps to avoid altering audit info during read-only operations
+            self.last_updated_at = original_last_updated
+            self.last_loaded_at = original_last_loaded
+        else:
+            self.records_count = count
+
+        return self.records_count
+
 class ProjectManager:
     def __init__(self):
         self.projects: Dict[str, Project] = {}
-        self.default_id = "default"
+        self._ignored_ids = {"default"}
         root = os.path.join(BACKEND_BASE_DIR, "uploads", "projects")
         if os.path.isdir(root):
             for pid in os.listdir(root):
                 pdir = os.path.join(root, pid)
-                if os.path.isdir(pdir):
+                if os.path.isdir(pdir) and pid not in self._ignored_ids:
                     try:
                         self.projects[pid] = Project(pid)
                     except Exception:
                         pass
-        if self.default_id not in self.projects:
-            self.projects[self.default_id] = Project(self.default_id, "Default")
 
     def refresh_from_disk(self):
         """Ensure in-memory projects include any directories present on disk.
-        Keeps existing Project instances and adds any missing ones. Also ensures default exists.
+        Keeps existing Project instances and adds any missing ones.
         """
         root = os.path.join(BACKEND_BASE_DIR, "uploads", "projects")
         if os.path.isdir(root):
             for pid in os.listdir(root):
                 pdir = os.path.join(root, pid)
-                if os.path.isdir(pdir) and pid not in self.projects:
+                if os.path.isdir(pdir) and pid not in self.projects and pid not in self._ignored_ids:
                     try:
                         self.projects[pid] = Project(pid)
                     except Exception:
                         pass
-        if self.default_id not in self.projects:
-            self.projects[self.default_id] = Project(self.default_id, "Default")
 
     def create_project(self, name: Optional[str] = None) -> Project:
         from uuid import uuid4
         pid = uuid4().hex[:8]
+        while pid in self._ignored_ids or pid in self.projects:
+            pid = uuid4().hex[:8]
         proj = Project(pid, name or f"Project {pid}")
         self.projects[pid] = proj
         return proj
@@ -107,26 +163,50 @@ class ProjectManager:
     def list_projects(self):
         # Refresh to pick up any projects created outside this process
         self.refresh_from_disk()
-        return [
-            {
-                "id": p.id,
-                "name": p.name,
-                "upload_dir": p.upload_dir,
-                "files_count": len(p.files),
-                "merged_file": p.merged_file,
-            }
-            for p in self.projects.values()
-        ]
+        project_list = []
+        for p in sorted(self.projects.values(), key=lambda obj: obj.created_at or "", reverse=True):
+            if p.id in self._ignored_ids:
+                continue
+            total_size = 0
+            datasets_count = 0
+            records_count = p.compute_records_from_merged(persist=True)
+            if os.path.isdir(p.upload_dir):
+                for root, _, files in os.walk(p.upload_dir):
+                    for fname in files:
+                        fpath = os.path.join(root, fname)
+                        try:
+                            total_size += os.path.getsize(fpath)
+                        except OSError:
+                            continue
+                        if fname.lower().startswith("dataset_") and fname.lower().endswith((".xlsx", ".xls")):
+                            datasets_count += 1
+            project_list.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "upload_dir": p.upload_dir,
+                    "files_count": len(p.files),
+                    "datasets_count": datasets_count,
+                    "merged_file": p.merged_file,
+                    "records_count": records_count,
+                    "last_loaded_at": p.last_loaded_at,
+                    "last_updated_at": p.last_updated_at,
+                    "created_at": p.created_at,
+                    "total_size_bytes": total_size,
+                }
+            )
+        return project_list
 
     def get(self, project_id: Optional[str]) -> Project:
-        pid = project_id or self.default_id
-        if pid not in self.projects:
+        if not project_id:
+            raise HTTPException(status_code=400, detail="Project ID required")
+        if project_id in self._ignored_ids:
             raise HTTPException(status_code=404, detail="Project not found")
-        return self.projects[pid]
+        if project_id not in self.projects:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return self.projects[project_id]
 
     def delete(self, project_id: str):
-        if project_id == self.default_id:
-            raise HTTPException(status_code=400, detail="Cannot delete default project")
         proj = self.get(project_id)
         if os.path.exists(proj.upload_dir):
             shutil.rmtree(proj.upload_dir)
@@ -179,127 +259,34 @@ class CreateProjectRequest(BaseModel):
 class UpdateProjectRequest(BaseModel):
     name: Optional[str] = None
 
-# ---- Default endpoints (use default project) ----
+# ---- Legacy endpoints requiring explicit project ----
 @app.get("/")
 async def root():
     return {"message": "Survey Analysis API", "version": "1.1.0"}
 
 @app.post("/upload-files")
 async def upload_files(files: List[UploadFile] = File(...)):
-    if not files:
-        raise HTTPException(status_code=400, detail="No files uploaded")
-    proj = pm.get(None)
-    uploaded_files: List[str] = []
-    try:
-        for file in files:
-            if not file.filename.endswith((".xlsx", ".xls")):
-                raise HTTPException(status_code=400, detail=f"File {file.filename} is not an Excel file")
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{timestamp}_{file.filename}"
-            file_path = os.path.join(proj.upload_dir, filename)
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            uploaded_files.append(file_path)
-            bname = os.path.basename(file_path)
-            if bname not in proj.files:
-                proj.files.append(bname)
-        proj._save_metadata()
-        return {
-            "success": True,
-            "message": f"Uploaded {len(uploaded_files)} files",
-            "files": [os.path.basename(f) for f in uploaded_files],
-            "file_paths": uploaded_files,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error uploading files: {str(e)}")
+    raise HTTPException(status_code=400, detail="Project ID required. Use /projects/{project_id}/upload-files")
 
 @app.post("/merge-files")
 async def merge_files(req: MergeFilesRequest):
-    try:
-        proj = pm.get(None)
-        full_paths, missing = _resolve_uploaded_paths(proj, req.file_paths)
-        if missing:
-            raise HTTPException(status_code=404, detail=f"Files not found: {missing}")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(proj.upload_dir, f"merged_{timestamp}.xlsx")
-        result = proj.analyzer.merge_excel_files(full_paths, output_path)
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        result["merged_file"] = os.path.basename(output_path)
-        proj.merged_file = result["merged_file"]
-        proj._save_metadata()
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error merging files: {str(e)}")
+    raise HTTPException(status_code=400, detail="Project ID required. Use /projects/{project_id}/merge-files")
 
 @app.post("/analyze-headers")
 async def analyze_headers(req: AnalyzeHeadersRequest):
-    try:
-        proj = pm.get(None)
-        full_path = os.path.join(proj.upload_dir, os.path.basename(req.file_path))
-        if not os.path.exists(full_path):
-            raise HTTPException(status_code=404, detail="File not found")
-        return proj.analyzer.analyze_headers(full_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error analyzing headers: {str(e)}")
+    raise HTTPException(status_code=400, detail="Project ID required. Use /projects/{project_id}/analyze-headers")
 
 @app.post("/select-columns")
 async def select_columns(req: SelectColumnsRequest):
-    try:
-        proj = pm.get(None)
-        full_path = os.path.join(proj.upload_dir, os.path.basename(req.file_path))
-        if not os.path.exists(full_path):
-            raise HTTPException(status_code=404, detail="File not found")
-        useful_columns = proj.analyzer.select_useful_columns(req.headers_analysis)
-        df = pd.read_excel(full_path)
-        existing_columns = [c for c in useful_columns if c in df.columns]
-        if not existing_columns:
-            raise HTTPException(status_code=400, detail="No useful columns found")
-        subset = df[existing_columns]
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(proj.upload_dir, f"dataset_{timestamp}.xlsx")
-        subset.to_excel(output_path, index=False)
-        return {
-            "success": True,
-            "selected_columns": len(existing_columns),
-            "total_questions": len(useful_columns),
-            "dataset_file": os.path.basename(output_path),
-            "columns": existing_columns,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error selecting columns: {str(e)}")
+    raise HTTPException(status_code=400, detail="Project ID required. Use /projects/{project_id}/select-columns")
 
 @app.post("/load-dataset")
 async def load_dataset(req: LoadDatasetRequest):
-    try:
-        proj = pm.get(None)
-        full_path = os.path.join(proj.upload_dir, os.path.basename(req.file_path))
-        if not os.path.exists(full_path):
-            raise HTTPException(status_code=404, detail="File not found")
-        proj.analyzer.load_data(full_path)
-        groups_data = proj.analyzer.get_question_groups()
-        return {
-            "success": True,
-            "message": "Dataset loaded successfully",
-            "groups": groups_data["groups"],
-            "labels": groups_data["labels"],
-            "likert_families": groups_data["likert_families"],
-            "total_groups": len(groups_data["groups"]),
-            "total_rows": len(proj.analyzer.data) if getattr(proj.analyzer, 'data', None) is not None else 0,
-            "total_columns": len(proj.analyzer.data.columns) if getattr(proj.analyzer, 'data', None) is not None else 0,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error loading dataset: {str(e)}")
+    raise HTTPException(status_code=400, detail="Project ID required. Use /projects/{project_id}/load-dataset")
 
 @app.get("/question-groups")
 async def get_question_groups():
-    try:
-        groups_data = pm.get(None).analyzer.get_question_groups()
-        if not groups_data["groups"]:
-            raise HTTPException(status_code=400, detail="No dataset loaded")
-        return groups_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting question groups: {str(e)}")
+    raise HTTPException(status_code=400, detail="Project ID required. Use /projects/{project_id}/question-groups")
 
 @app.post("/analyze-question")
 async def analyze_question(
@@ -308,18 +295,7 @@ async def analyze_question(
     show_percentages: bool = Form(True),
     include_na: bool = Form(False),
 ):
-    try:
-        result = pm.get(None).analyzer.analyze_question_group(
-            group_key=group_key,
-            chart_type=chart_type,
-            show_percentages=show_percentages,
-            include_na=include_na,
-        )
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        return jsonable_encoder(result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error analyzing question: {str(e)}")
+    raise HTTPException(status_code=400, detail="Project ID required. Use /projects/{project_id}/analyze-question")
 
 @app.get("/chart-types")
 async def get_chart_types():
@@ -342,18 +318,7 @@ async def get_chart_types():
 
 @app.delete("/cleanup")
 async def cleanup_files():
-    try:
-        proj = pm.get(None)
-        if os.path.exists(proj.upload_dir):
-            shutil.rmtree(proj.upload_dir)
-        os.makedirs(proj.upload_dir, exist_ok=True)
-        proj.analyzer = SurveyAnalyzer()
-        proj.files = []
-        proj.merged_file = None
-        proj._save_metadata()
-        return {"success": True, "message": "Files cleaned up"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error cleaning up: {str(e)}")
+    raise HTTPException(status_code=400, detail="Project ID required. Use /projects/{project_id}/cleanup")
 
 # ---- Project APIs ----
 @app.post("/projects")
@@ -372,6 +337,19 @@ async def list_projects():
 @app.get("/projects/{project_id}")
 async def get_project_details(project_id: str = Path(...)):
     proj = pm.get(project_id)
+    total_size = 0
+    datasets_count = 0
+    records_count = proj.compute_records_from_merged(persist=True)
+    if os.path.isdir(proj.upload_dir):
+        for root, _, files in os.walk(proj.upload_dir):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                try:
+                    total_size += os.path.getsize(fpath)
+                except OSError:
+                    continue
+                if fname.lower().startswith("dataset_") and fname.lower().endswith((".xlsx", ".xls")):
+                    datasets_count += 1
     return {
         "id": proj.id,
         "name": proj.name,
@@ -379,6 +357,12 @@ async def get_project_details(project_id: str = Path(...)):
         "files": proj.files,
         "merged_file": proj.merged_file,
         "created_at": proj.created_at,
+        "records_count": records_count,
+        "last_updated_at": proj.last_updated_at,
+        "last_loaded_at": proj.last_loaded_at,
+        "files_count": len(proj.files),
+        "datasets_count": datasets_count,
+        "total_size_bytes": total_size,
     }
 
 @app.delete("/projects/{project_id}")
@@ -475,7 +459,7 @@ async def merge_files_project(project_id: str, req: MergeFilesRequest):
             raise HTTPException(status_code=400, detail=result["error"])
         result["merged_file"] = os.path.basename(output_path)
         proj.merged_file = result["merged_file"]
-        proj._save_metadata()
+        proj.update_records(result.get("rows"))
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error merging files: {str(e)}")
@@ -507,6 +491,7 @@ async def select_columns_project(project_id: str, req: SelectColumnsRequest):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(proj.upload_dir, f"dataset_{timestamp}.xlsx")
         subset.to_excel(output_path, index=False)
+        proj.update_records(len(subset))
         return {
             "success": True,
             "selected_columns": len(existing_columns),
@@ -526,6 +511,9 @@ async def load_dataset_project(project_id: str, req: LoadDatasetRequest):
             raise HTTPException(status_code=404, detail="File not found")
         proj.analyzer.load_data(full_path)
         groups_data = proj.analyzer.get_question_groups()
+        data_rows = len(proj.analyzer.data) if getattr(proj.analyzer, 'data', None) is not None else 0
+        data_columns = len(proj.analyzer.data.columns) if getattr(proj.analyzer, 'data', None) is not None else 0
+        proj.update_records(data_rows, mark_loaded=True)
         return {
             "success": True,
             "message": "Dataset loaded successfully",
@@ -533,8 +521,8 @@ async def load_dataset_project(project_id: str, req: LoadDatasetRequest):
             "labels": groups_data["labels"],
             "likert_families": groups_data["likert_families"],
             "total_groups": len(groups_data["groups"]),
-            "total_rows": len(proj.analyzer.data) if getattr(proj.analyzer, 'data', None) is not None else 0,
-            "total_columns": len(proj.analyzer.data.columns) if getattr(proj.analyzer, 'data', None) is not None else 0,
+            "total_rows": data_rows,
+            "total_columns": data_columns,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading dataset: {str(e)}")
@@ -582,8 +570,10 @@ async def cleanup_files_project(project_id: str):
         proj.analyzer = SurveyAnalyzer()
         proj.files = []
         proj.merged_file = None
+        proj.records_count = None
+        proj.last_loaded_at = None
+        proj.last_updated_at = datetime.now().isoformat(timespec="seconds")
         proj._save_metadata()
         return {"success": True, "message": "Files cleaned up"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cleaning up: {str(e)}")
-

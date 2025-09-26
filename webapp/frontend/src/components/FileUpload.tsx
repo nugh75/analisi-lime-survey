@@ -52,14 +52,15 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
     setSuccess(null)
 
     try {
+      if (!projectId) {
+        throw new Error('Seleziona un progetto prima di caricare i file')
+      }
       const formData = new FormData()
       acceptedFiles.forEach(file => {
         formData.append('files', file)
       })
 
-      const uploadUrl = projectId 
-        ? `${API_BASE_URL}/projects/${projectId}/upload-files`
-        : `${API_BASE_URL}/upload-files`
+      const uploadUrl = `${API_BASE_URL}/projects/${projectId}/upload-files`
   const response = await axios.post<UploadFilesResponse>(uploadUrl, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -91,15 +92,17 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
 
   const handleMergeFiles = async () => {
     if (!uploadedFiles || uploadedFiles.length === 0) return
+    if (!projectId) {
+      setError('Seleziona un progetto prima di unire i file')
+      return
+    }
 
     setMerging(true)
     setError(null)
 
     try {
       // Backend expects body with { file_paths: [...] }
-      const mergeUrl = projectId 
-        ? `${API_BASE_URL}/projects/${projectId}/merge-files`
-        : `${API_BASE_URL}/merge-files`
+      const mergeUrl = `${API_BASE_URL}/projects/${projectId}/merge-files`
       const response = await axios.post<MergeResponse>(mergeUrl, {
         file_paths: uploadedFilePaths,
       })
@@ -115,9 +118,10 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
 
   const handleCleanup = async () => {
     try {
-      const cleanupUrl = projectId 
-        ? `${API_BASE_URL}/projects/${projectId}/cleanup`
-        : `${API_BASE_URL}/cleanup`
+      if (!projectId) {
+        throw new Error('Seleziona un progetto prima di eseguire la pulizia')
+      }
+      const cleanupUrl = `${API_BASE_URL}/projects/${projectId}/cleanup`
       await axios.delete(cleanupUrl)
   setUploadedFiles([])
   setMergedFile(null)
@@ -126,6 +130,25 @@ export default function FileUpload({ uploadedFiles = [], setUploadedFiles, setMe
   } catch (err: unknown) {
   setError(toErrorMessage(err) || 'Pulizia non riuscita')
     }
+  }
+
+  if (!projectId) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="card text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Nessun progetto selezionato</h2>
+          <p className="text-gray-600 mb-4">
+            Vai alla sezione "Lista progetti" per crearne uno nuovo oppure selezionane uno esistente dalla barra in alto.
+          </p>
+          <button
+            onClick={() => navigate('/projects')}
+            className="btn-primary px-4 py-2"
+          >
+            Apri lista progetti
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

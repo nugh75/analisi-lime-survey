@@ -6,6 +6,12 @@ export interface ProjectInfo {
   files?: string[]
   merged_file?: string | null
   created_at?: string
+  files_count?: number
+  datasets_count?: number
+  records_count?: number | null
+  last_updated_at?: string | null
+  last_loaded_at?: string | null
+  total_size_bytes?: number
 }
 
 // Upload files (default or project-scoped)

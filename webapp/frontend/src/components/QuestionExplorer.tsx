@@ -7,6 +7,7 @@ import { compareQuestionNumbers, extractQuestionNumber, getSectionPrefix, saniti
 
 interface QuestionExplorerProps {
   dataset: DatasetSummary | null
+  isLoading?: boolean
 }
 
 interface QuestionItem {
@@ -20,7 +21,7 @@ interface GroupedQuestions {
   questions: QuestionItem[]
 }
 
-export default function QuestionExplorer({ dataset }: QuestionExplorerProps) {
+export default function QuestionExplorer({ dataset, isLoading = false }: QuestionExplorerProps) {
   const navigate = useNavigate()
   const { projectId, projectName } = useProject()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -110,15 +111,25 @@ export default function QuestionExplorer({ dataset }: QuestionExplorerProps) {
     navigate(`/results?group=${encodeURIComponent(groupKey)}`)
   }
 
+  if (isLoading) {
+    return (
+      <div className="max-w-screen-lg mx-auto">
+        <div className="card text-center">
+          <Loader2 className="mx-auto h-12 w-12 text-blue-500 animate-spin mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Caricamento domande…</h2>
+          <p className="text-gray-600">Stiamo recuperando i dettagli del questionario selezionato.</p>
+        </div>
+      </div>
+    )
+  }
+
   if (!dataset) {
     return (
       <div className="max-w-screen-lg mx-auto">
         <div className="card text-center">
           <List className="mx-auto h-16 w-16 text-gray-400 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Nessun questionario caricato</h2>
-          <p className="text-gray-600">
-            Carica e prepara un dataset dalla Dashboard per visualizzare l'elenco completo delle domande.
-          </p>
+          <p className="text-gray-600">Carica e prepara un dataset dalla Dashboard per visualizzare l'elenco completo delle domande dell'indagine.</p>
         </div>
       </div>
     )

@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { BarChart3, Upload, FileText, List, Plus, Eye, Pencil } from 'lucide-react'
+import { BarChart3, Upload, FileText, List, Plus, Shield, Home } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { API_BASE_URL } from '../services/api'
@@ -69,48 +69,61 @@ export default function Navigation() {
     }
   }
 
-  const toggleMode = () => {
-    const next = mode === 'edit' ? 'view' : 'edit'
-    setMode(next)
-    if (next === 'view') {
-      navigate('/results')
+  const requestAdminAccess = () => {
+    if (mode === 'edit') return
+    const pwd = window.prompt('Password amministratore:')
+    if (pwd === null) return
+    if (pwd.trim() !== 'Prin') {
+      window.alert('Password errata')
+      return
     }
+    setMode('edit')
+  }
+
+  const exitAdmin = () => {
+    if (mode !== 'edit') return
+    setMode('view')
+    navigate('/results')
   }
 
   return (
     <nav className="bg-white shadow-sm border-b border-gray-200">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
-          <div className="flex items-center space-x-2">
-            <BarChart3 className="h-8 w-8 text-blue-600" />
-            <h1 className="text-xl font-bold text-gray-900">Analisi Questionari</h1>
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <BarChart3 className="h-8 w-8 text-blue-600" />
+              <h1 className="text-xl font-bold text-gray-900">Analisi Questionari</h1>
+            </div>
+            <Link
+              to="/projects"
+              className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition ${
+                isActive('/projects')
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <Home className="h-4 w-4" />
+              <span>Lista progetti</span>
+            </Link>
           </div>
           
-          <div className="flex space-x-4 items-center">
-            {/* Mode toggle */}
-            <button
-              onClick={toggleMode}
-              className="btn-secondary py-1 px-3 flex items-center gap-2"
-              title={mode === 'view' ? 'Modalità Visualizza' : 'Modalità Modifica'}
-            >
-              {mode === 'view' ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-              {mode === 'view' ? 'Visualizza' : 'Modifica'}
-            </button>
-
+          <div className="flex items-center space-x-4">
             {/* Project selector */}
             <div className="flex items-center space-x-2">
               <select
-                value={selectedId}
+                value={selectedId ?? ''}
                 onChange={(e) => {
                   const id = e.target.value || null
                   const name = id ? (projects.find(p => p.id === id)?.name || null) : null
                   setSelectedId(e.target.value)
                   setProject(id, name)
-          if (mode === 'view') navigate('/results')
+                  if (mode === 'view') navigate('/results')
                 }}
                 className="text-base py-2 rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                disabled={projects.length === 0}
               >
-                <option value="">Predefinito</option>
+                <option value="">{projects.length ? 'Seleziona un progetto' : 'Nessun progetto disponibile'}</option>
                 {/* Ensure current selection is visible even if not in list */}
                 {projectId && !projects.some(p => p.id === projectId) && (
                   <option value={projectId}>{projectName || projectId}</option>
@@ -182,6 +195,16 @@ export default function Navigation() {
               <BarChart3 className="h-4 w-4" />
               <span>Risultati</span>
             </Link>
+
+            <div className="flex items-center space-x-2 ml-6">
+              <button
+                onClick={mode === 'edit' ? exitAdmin : requestAdminAccess}
+                className={`btn-secondary py-1 px-3 flex items-center gap-2 ${mode === 'edit' ? 'border-green-300 text-green-700 hover:bg-green-50' : ''}`}
+              >
+                <Shield className="h-4 w-4" />
+                {mode === 'edit' ? 'Admin attivo' : 'Admin'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

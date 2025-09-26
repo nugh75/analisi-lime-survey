@@ -11,17 +11,20 @@ const ProjectContext = createContext<ProjectContextType | undefined>(undefined)
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [projectId, setProjectId] = useState<string | null>(() => {
-    return localStorage.getItem('projectId') || null
+    const stored = localStorage.getItem('projectId')
+    if (!stored || stored === 'default') return null
+    return stored
   })
   const [projectName, setProjectName] = useState<string | null>(() => {
     return localStorage.getItem('projectName') || null
   })
 
   const setProject = (id: string | null, name: string | null) => {
-    setProjectId(id)
+    const normalizedId = id && id !== 'default' ? id : null
+    setProjectId(normalizedId)
     setProjectName(name)
-    if (id) {
-      localStorage.setItem('projectId', id)
+    if (normalizedId) {
+      localStorage.setItem('projectId', normalizedId)
     } else {
       localStorage.removeItem('projectId')
     }

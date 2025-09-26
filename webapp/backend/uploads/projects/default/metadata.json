@@ -19,5 +19,8 @@
     "20250910_084809_results-survey458916.xlsx"
   ],
   "merged_file": "merged_20250910_084813.xlsx",
-  "created_at": "2025-09-10T00:49:37"
+  "created_at": "2025-09-10T00:49:37",
+  "last_updated_at": "2025-09-10T00:49:37",
+  "last_loaded_at": null,
+  "records_count": 169
 }

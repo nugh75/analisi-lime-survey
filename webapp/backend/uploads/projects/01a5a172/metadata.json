@@ -2,9 +2,26 @@
   "id": "01a5a172",
   "name": "Secondo grado",
   "files": [
-    "metadata.json",
-    "merged_20250910_084950.xlsx"
+    "20250926_084443_secondo1.xlsx",
+    "20250926_084443_secondo2.xlsx",
+    "20250926_084443_secondo3.xlsx",
+    "20250926_084443_secondo4.xlsx",
+    "20250926_084443_secondo5.xlsx",
+    "20250926_084443_secondo6.xlsx",
+    "20250926_084443_secondo7.xlsx",
+    "20250926_084443_secondo8.xlsx",
+    "20250926_084443_secondo9.xlsx",
+    "20250926_084443_secondo10.xlsx",
+    "20250926_084443_secondo11.xlsx",
+    "20250926_084443_secondo12.xlsx",
+    "20250926_084443_secondo13.xlsx",
+    "20250926_084443_secondo14.xlsx",
+    "20250926_084443_secondo15.xlsx",
+    "20250926_084443_secondo16.xlsx"
   ],
-  "merged_file": "merged_20250910_084950.xlsx",
-  "created_at": "2025-09-10T08:49:39"
+  "merged_file": "merged_20250926_084445.xlsx",
+  "created_at": "2025-09-10T08:49:39",
+  "last_updated_at": "2025-09-26T10:05:43",
+  "last_loaded_at": "2025-09-26T10:05:43",
+  "records_count": 205
 }
